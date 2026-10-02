@@ -27,8 +27,13 @@ DATA_DIR = APPDATA / "Hotk33"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 LEARNED_FILE = DATA_DIR / "learned.json"
 LAYOUTS_FILE = DATA_DIR / "paint_layouts.json"
+CRASH_LOG = DATA_DIR / "crash.log"
 ICON_FILE = DATA_DIR / "icon.ico"
 MUSIC, TYPING, PAINT, STYLES = "Music", "Typing", "Paint", "Styles"
+# Typing mode is switched off for now: it crashed when opened in 2.1.0. Its
+# code stays (app/predictive/) so it can come back once that's fixed.
+TYPING_ENABLED = False
+MODES = [MUSIC] + ([TYPING] if TYPING_ENABLED else []) + [PAINT, STYLES]
 TAGLINES = {MUSIC: "Lighting that reacts to your music",
             TYPING: "Lights up the keys you'll type next",
             PAINT: "Paint your own lighting, key by key",
@@ -67,7 +72,7 @@ def import_old_settings():
             continue
         disabled.update(old.pop("disabled_devices", []))
         found.update({OLD_KEYS.get(k, k): v for k, v in old.items() if k != "port"})
-    if isinstance(typing, dict) and not music:
+    if isinstance(typing, dict) and not music and TYPING_ENABLED:
         found["page"] = TYPING
     if disabled:
         found["disabled_devices"] = sorted(disabled)
@@ -88,7 +93,7 @@ def load_settings():
     if "custom_color" in saved and "custom_colors" not in saved:  # one color before 2.0
         saved["custom_colors"] = [saved["custom_color"]]
     settings.update({k: v for k, v in saved.items() if k in DEFAULTS})
-    if settings["page"] not in (MUSIC, TYPING, PAINT, STYLES):
+    if settings["page"] not in MODES:
         settings["page"] = MUSIC
     music_page.check_settings(settings)
     paint_page.check_settings(settings)
@@ -142,11 +147,13 @@ class App:
         stage, bottom, footer = self._build_body()
         self.pages = {
             MUSIC: music_page.MusicPage(self, stage, bottom, footer),
-            TYPING: typing_page.TypingPage(self, stage, bottom, footer, LEARNED_FILE, live),
             PAINT: paint_page.PaintPage(self, stage, bottom, footer, LAYOUTS_FILE),
         }
         self.pages[STYLES] = styles_page.StylesPage(self, stage, bottom, footer,
                                                     self.pages[PAINT].store)
+        if TYPING_ENABLED:
+            self.pages[TYPING] = typing_page.TypingPage(self, stage, bottom, footer,
+                                                        LEARNED_FILE, live)
         self.page = self.pages[self.settings["page"]]
         self.mode_btn.set(self.page.name)
         self._show_page()
@@ -206,8 +213,8 @@ class App:
         self.tagline.grid(row=1, column=1, sticky="nw")
 
         self.mode_btn = ctk.CTkSegmentedButton(
-            hdr, values=[MUSIC, TYPING, PAINT, STYLES], command=self.switch_page,
-            font=self.fonts["bold"], width=380, height=36, corner_radius=10, fg_color=FIELD,
+            hdr, values=MODES, command=self.switch_page, font=self.fonts["bold"],
+            width=95 * len(MODES), height=36, corner_radius=10, fg_color=FIELD,
             selected_color=ACCENT, selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
             unselected_hover_color=FIELD_HOVER, text_color=TEXT)
         self.mode_btn.grid(row=0, column=2, rowspan=2, padx=20)
@@ -465,6 +472,33 @@ def single_instance():
     return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
+def log_crashes(root=None):
+    """Writes errors that would otherwise vanish (the packaged app has no
+    console) to crash.log: Python errors on any thread or in the window, and
+    hard crashes inside Windows / driver code. Returns the open log file."""
+    import datetime
+    import faulthandler
+    import traceback
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        log = open(CRASH_LOG, "a", encoding="utf-8", buffering=1)  # noqa: SIM115 - kept open
+    except OSError:
+        return None
+
+    def write(kind, exc_type, exc, tb):
+        stamp = datetime.datetime.now().isoformat(timespec="seconds")
+        log.write(f"\n--- {stamp}  Hotk33 {__version__}  {kind}\n")
+        log.write("".join(traceback.format_exception(exc_type, exc, tb)))
+
+    faulthandler.enable(log)  # hard crashes (access violations in DLLs, ...)
+    sys.excepthook = lambda t, e, tb: write("error", t, e, tb)
+    threading.excepthook = lambda a: write(f"error in thread {a.thread.name if a.thread else ''}",
+                                           a.exc_type, a.exc_value, a.exc_traceback)
+    if root is not None:
+        root.report_callback_exception = lambda t, e, tb: write("error in the window", t, e, tb)
+    return log
+
+
 def self_test():
     """Checks that this copy of Hotk33 (e.g. a release build) has everything it
     needs: every Typing model loads and the window builds. Lights nothing, reads
@@ -499,6 +533,7 @@ def main():
         return
     ctk.set_appearance_mode("dark")
     root = ctk.CTk()
+    log_crashes(root)
     App(root)
     root.mainloop()
 

@@ -173,38 +173,39 @@ def main():
     app.mode_btn.set(app_mod.MUSIC)
     app.switch_page(app_mod.MUSIC)
 
-    # Typing: shown as running, without the keyboard hook or any lighting
-    app.mode_btn.set(app_mod.TYPING)
-    app.switch_page(app_mod.TYPING)
-    typing = app.pages[app_mod.TYPING]
-    eng = typing.engine
-    eng._stop = False
-    app._update_run_state()
-    typing.models.preload()
-    for s in eng.slots:
-        s.status = "lit"
-    # a little learning, so the counters aren't empty
-    for mode, sample in (("english", "see you at the standup tomorrow. "),
-                         ("python", "prices = fetch_prices(symbol)\n")):
-        type_text(eng, mode, sample)
-    for name, mode, why, text in TYPING_SCENES:
-        with eng.lock:
-            if mode is None:
-                eng.private = True
-                eng.text = ""
-            else:
-                eng.private = False
-                eng.window, eng.text = 1, ""
-                type_text(eng, mode, text)
-                eng.mode_reason = why
-            eng._predict()
-            eng.version += 1
-        typing.refresh()
-        app._update_rows()
-        app._set_pill(*typing.pill())
-        app.detail.configure(text=typing.message())
-        grab(root, OUT / name)
-    eng._stop = True
+    if app_mod.TYPING_ENABLED:  # switched off for now
+        # Typing: shown as running, without the keyboard hook or any lighting
+        app.mode_btn.set(app_mod.TYPING)
+        app.switch_page(app_mod.TYPING)
+        typing = app.pages[app_mod.TYPING]
+        eng = typing.engine
+        eng._stop = False
+        app._update_run_state()
+        typing.models.preload()
+        for s in eng.slots:
+            s.status = "lit"
+        # a little learning, so the counters aren't empty
+        for mode, sample in (("english", "see you at the standup tomorrow. "),
+                             ("python", "prices = fetch_prices(symbol)\n")):
+            type_text(eng, mode, sample)
+        for name, mode, why, text in TYPING_SCENES:
+            with eng.lock:
+                if mode is None:
+                    eng.private = True
+                    eng.text = ""
+                else:
+                    eng.private = False
+                    eng.window, eng.text = 1, ""
+                    type_text(eng, mode, text)
+                    eng.mode_reason = why
+                eng._predict()
+                eng.version += 1
+            typing.refresh()
+            app._update_rows()
+            app._set_pill(*typing.pill())
+            app.detail.configure(text=typing.message())
+            grab(root, OUT / name)
+        eng._stop = True
     root.destroy()
 
 
