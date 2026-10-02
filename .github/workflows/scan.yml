@@ -1,0 +1,85 @@
+# Virus-scans a release's downloadable files (the exact files people get) with
+# Microsoft Defender and ClamAV. Runs after each release build, or by hand
+# (Actions > Scan release > Run workflow) for any release tag.
+name: Scan release
+
+on:
+  workflow_run:
+    workflows: [Build release]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to scan (empty = the latest release)
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  defender:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'release' && github.event.workflow_run.conclusion == 'success')
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - name: Download the release files
+        shell: bash
+        run: |
+          gh release download $TAG --repo "$GITHUB_REPOSITORY" --dir assets
+          ls -l assets
+          (cd assets && sha256sum *) | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Unpack the app (scanned both zipped and unpacked)
+        shell: pwsh
+        run: Get-ChildItem assets/*.zip | ForEach-Object { Expand-Archive $_ -DestinationPath unpacked }
+
+      - name: Scan with Microsoft Defender
+        shell: pwsh
+        run: |
+          Update-MpSignature -ErrorAction SilentlyContinue
+          $sig = (Get-MpComputerStatus).AntivirusSignatureVersion
+          $mp = "$env:ProgramFiles/Windows Defender/MpCmdRun.exe"
+          $found = $false
+          foreach ($dir in "assets", "unpacked") {
+            $path = (Resolve-Path $dir).Path
+            & $mp -Scan -ScanType 3 -File $path -DisableRemediation | Tee-Object -Variable out
+            # MpCmdRun exits 0 when clean and 2 when it finds threats
+            if ($LASTEXITCODE -eq 2) { $found = $true }
+            elseif ($LASTEXITCODE -ne 0) { throw "Defender couldn't scan $dir (exit $LASTEXITCODE)" }
+          }
+          $result = if ($found) { "THREATS FOUND" } else { "no threats found" }
+          "Microsoft Defender (signatures $sig): $result" | Tee-Object -Append $env:GITHUB_STEP_SUMMARY
+          if ($found) { exit 1 }
+
+  clamav:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.event == 'release' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ inputs.tag || github.event.workflow_run.head_branch }}
+    steps:
+      - name: Download the release files
+        run: gh release download $TAG --repo "$GITHUB_REPOSITORY" --dir assets && ls -l assets
+
+      - name: Install ClamAV and its latest signatures
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clamav clamav-freshclam
+          sudo systemctl stop clamav-freshclam || true
+          sudo freshclam
+
+      - name: Scan with ClamAV
+        run: |
+          set +e
+          clamscan --recursive --scan-archive=yes --infected assets | tee scan.txt
+          code=${PIPESTATUS[0]}
+          version=$(clamscan --version)
+          case $code in
+            0) echo "ClamAV ($version): no threats found" >> "$GITHUB_STEP_SUMMARY" ;;
+            1) echo "ClamAV ($version): THREATS FOUND" >> "$GITHUB_STEP_SUMMARY"; cat scan.txt >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "ClamAV couldn't scan (exit $code)" >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+          exit $code
