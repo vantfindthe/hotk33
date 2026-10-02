@@ -125,6 +125,46 @@ def main():
     app.detail.configure(text="")
     grab(root, OUT / "music.png")
 
+    # Paint: a layout painted on the Model 100, with the brush hovering over J
+    app.mode_btn.set(app_mod.PAINT)
+    app.switch_page(app_mod.PAINT)
+    paint = app.pages[app_mod.PAINT]
+    kb = paint.out
+    st = app.settings
+
+    def stroke(keys_, **brush):
+        st.update({"paint_size": 1, "paint_shape": "Circle", "paint_weight": 100,
+                   "paint_animation": "Static", "paint_react": "Nothing", "paint_heat": 0,
+                   **brush})
+        for k in keys_:
+            for led in kb.keymap.get(k, []):
+                paint._paint_at(led)
+
+    st.update(paint_color=[40, 70, 255], paint_intensity=55, paint_animation="Static")
+    paint.fill()
+    stroke("1234567890", paint_color=[255, 255, 255], paint_animation="Rainbow",
+           paint_intensity=100)
+    stroke("wasd", paint_color=[255, 40, 40], paint_intensity=100, paint_heat=80)
+    stroke("j", paint_color=[0, 229, 255], paint_intensity=100, paint_size=3,
+           paint_weight=35, paint_react="Keystrokes", paint_reactivity=60)
+    st.update(paint_color=[255, 61, 200], paint_size=3, paint_shape="Circle", paint_weight=35,
+              paint_react="Keystrokes")
+    paint._load_brush(paint.brush())
+    paint.sliders["paint_size"](3)
+    paint.sliders["paint_weight"](35)
+    paint.anim_btn.set("Static")
+    paint.dirty = False
+    paint.settings["paint_layout"] = "Gaming"
+    paint.store.saved["Gaming"] = paint.layout_json()
+    paint._refresh_layouts()
+    paint.canvas.hover = list(paint._covers(kb.keymap["j"][0]))
+    paint.tick()
+    app._set_pill("Live  ·  1 device", GOOD)
+    app.start_btn.configure(text="Stop", fg_color=FIELD, hover_color=FIELD_HOVER, text_color=TEXT)
+    grab(root, OUT / "paint.png")
+    app.mode_btn.set(app_mod.MUSIC)
+    app.switch_page(app_mod.MUSIC)
+
     # Typing: shown as running, without the keyboard hook or any lighting
     app.mode_btn.set(app_mod.TYPING)
     app.switch_page(app_mod.TYPING)

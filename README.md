@@ -1,6 +1,6 @@
 # Hotk33
 
-One app for your RGB keyboard, mouse and ARGB lighting on Windows, with two modes:
+One app for your RGB keyboard, mouse and ARGB lighting on Windows, with three modes:
 
 - **Music**: your lighting reacts to whatever is playing: spectrum bars, beat
   pulses, ripples and VU meters, with a per-band sensitivity equalizer. Works
@@ -10,9 +10,13 @@ One app for your RGB keyboard, mouse and ARGB lighting on Windows, with two mode
   the second most likely **yellow**, and the third **red**. It knows whether
   you're writing English, Python, JavaScript or a PowerShell, cmd or bash
   command, and learns how you type.
+- **Paint**: paint your own lighting, key by key, with the mouse or by
+  pressing the keys themselves. Each key gets a color, an animation, an
+  intensity, and can react to being pressed (a heatmap), to every keystroke or
+  to audio. Save what you paint as layouts.
 
 Pick the mode at the top of the window and press **Start**. One mode runs at a
-time (both would fight over the same keys); switching modes while running
+time (they would fight over the same keys); switching modes while running
 hands the lights straight over.
 
 Hotk33 combines what used to be two separate apps, RGB Music Visualizer and
@@ -41,12 +45,13 @@ see [Building](#building-from-source).
 ## Devices
 
 Devices are found automatically (**Scan** checks again). Switch each one on or
-off in the device list; in Music mode, click a device to preview it. Typing
+off in the device list; in Music mode, click a device to preview it, and in
+Paint mode to paint it. Typing
 mode lists only keyboards that can light single keys. A keyboard that's
 plugged in but can't be lit yet is listed too, marked with what it needs (for
 example, start Synapse, or connect the Keychron with a cable).
 
-| Devices | How | Needs | Music | Typing |
+| Devices | How | Needs | Music & Paint | Typing |
 |---|---|---|---|---|
 | Keyboardio Model 100 | Focus serial + MusicLEDs firmware | this project's firmware ([below](#keyboardio-model-100-firmware)); Chrysalis closed | ✓ | ✓ |
 | Logitech G keyboards & mice | G HUB LED SDK | G HUB running, with "allow games & applications to control lighting" on | ✓ | keyboards |
@@ -81,12 +86,58 @@ tested against simulated devices only. Reports welcome.
 
 Choose an effect and colors, set the levels, and shape the per-band
 sensitivity in the equalizer (drag to boost or cut a band, double-click to
-zero, scroll to fine-tune). Pick the audio to follow at the bottom: the
-speakers (what's playing) or a microphone.
+zero, scroll to fine-tune).
+
+**Custom** colors are a gradient you make yourself: click a color stop to
+pick its color, **+** adds a stop (up to 6), right-click removes one, and
+**Start from** copies a preset's colors to edit. One stop is a solid color.
+
+Pick the audio to follow at the bottom: **Speakers** follows what's playing,
+**Microphone** follows an input (a mic, or a line-in from another device).
 
 With **Normal lighting when the music stops** on, devices get their own
 lighting back after 8 s of silence. Logitech devices can take a few seconds
 to switch back to Hotk33 when music resumes (that's G HUB).
+
+## Paint mode
+
+![Paint mode](docs/paint.png)
+
+Pick a device in the list, then paint it:
+
+- **With the mouse**: click or drag over the keys. The keys the brush would
+  cover are outlined.
+- **By keystroke**: with Hotk33 as the active window, press a key on the
+  keyboard and the brush lands on that key (keyboards Typing mode supports).
+
+Tools: **Brush**, **Erase**, **Pick** (the brush takes a key's paint),
+**Fill** (the whole device), **Clear**, **Undo** (also `Ctrl+Z`).
+
+The brush:
+
+| | |
+|---|---|
+| Color | any color, or one of the quick swatches |
+| Animation | Static, Breathe, Blink, Wave (sweeps left to right), Rainbow, Sparkle. **Cycle** sets how long one cycle takes |
+| Intensity | how bright the paint is |
+| React to | **Keystrokes**: every key you press, anywhere, sends a flash rippling out from that key. **Audio**: the keys pulse with the spectrum (bass on the left, treble on the right) from the speakers or a microphone, picked at the bottom |
+| Reactivity | how much they react: at 100% a key is dark until something sets it off, at 50% it rests at half brightness |
+| Heatmap | the key heats up (orange, yellow, white-hot) each time it's pressed, and cools down over **Heat fade** |
+| Size | how many keys across the brush covers |
+| Shape | a circle or a square of that size |
+| Weight | how strongly the keys around the brush's center take its paint: at 100% all of them fully, lower values blend it into what's there toward the edge |
+
+**Layouts**: **Save** keeps what's painted on every device under a name,
+**Save as...** under a new one, **New** starts over, **Delete** removes the
+saved layout. Pick a saved layout in the drop-down to load it. What you're
+painting is kept between sessions even if you don't save it. Layouts are in
+`%APPDATA%\Hotk33\paint_layouts.json`.
+
+Press **Start** to light the devices: each one shows its painted layout (a
+device with nothing painted keeps its own lighting). Keystrokes are read only
+while Paint mode runs and something painted reacts to them (heatmap or
+keystrokes), and only which key was pressed. In password fields keys don't
+heat up or ripple from where you typed.
 
 ## Typing mode
 
@@ -113,8 +164,8 @@ Type `t` and **H** lights up (then **O**, **R**). Type `th` and you get **E**,
 drop-down to fix it. In code and terminal modes **Enter** can light up too,
 and pressing it carries the context to the next line.
 
-Keystrokes are only read while Typing mode is running. In Music mode, or when
-stopped, Hotk33 doesn't watch the keyboard at all.
+Keystrokes are only read while Typing mode is running (and in Paint mode, see
+above). In Music mode, or when stopped, Hotk33 doesn't watch the keyboard at all.
 
 ### It learns how you type
 
@@ -228,7 +279,8 @@ Screenshots: `.venv\Scripts\python tools\screenshots.py` renders the ones in
 | `app/widgets.py` | colors, device preview, icon |
 | `app/devices/` | one module per backend (`model100`, `logitech`, `razer`, `steelseries`, `openrgb_devices`, `qmk_via`), shared by both modes, plus connected-keyboard detection (`hardware`) |
 | `app/layout.py`, `app/keys.py` | where each device's LEDs are; which key types which character |
-| `app/music/` | Music mode: WASAPI loopback capture and FFT bands (`audio`), effects, the render loop with one sender thread per device (`engine`), its part of the window (`page`) |
+| `app/music/` | Music mode: WASAPI capture (speakers or microphone) and FFT bands (`audio`, `audiopicker`), effects, the render loop with one sender thread per device (`engine`), its part of the window (`page`) |
+| `app/paint/` | Paint mode: patterns, brushes and animations (`pattern`), the render loop (`engine`), saved layouts (`store`), the paintable preview (`canvas`), its part of the window (`page`) |
 | `app/predictive/` | Typing mode: keystrokes -> predictions -> frames (`engine`), the keyboard hook (`hook`), prediction models (`predict`, `modes/`, `words_en.txt`), Auto mode (`modes.py`), password-field detection (`secure`), its part of the window (`page`) |
 | `firmware/Model100/` | Model 100 sketch + `MusicLEDs.h` plugin |
 | `tools/` | trains the Typing models (`build_modes.py`, `seeds/`), regenerates the word list, renders the screenshots |

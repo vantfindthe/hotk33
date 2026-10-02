@@ -19,8 +19,18 @@ RETRY_S = 3.0
 def palette_for(settings):
     """Returns (palette function, whether it colors by key position)."""
     if settings["palette"] == CUSTOM:
-        return effects.solid_palette(settings["custom_color"]), False
+        return effects.gradient_palette(settings["custom_colors"]), False
     return effects.PALETTES[settings["palette"]], settings["palette"] == "Rainbow"
+
+
+def device_frame(colors, output):
+    """(n, 3) float RGB 0..1 -> the uint8 frame to send to `output`."""
+    # LEDs are linear; gamma makes fades look even to the eye.
+    rgb = (np.asarray(colors, dtype=float) ** 2.0) * 255
+    budget = output.power_budget
+    if budget and rgb.sum() > budget:
+        rgb *= budget / rgb.sum()
+    return np.ascontiguousarray(rgb, dtype=np.uint8)
 
 
 class OutputWorker(threading.Thread):
@@ -181,12 +191,7 @@ class Engine(threading.Thread):
                 if idle:
                     w.request_release()
                     continue
-                # LEDs are linear; gamma makes fades look even to the eye.
-                rgb = (colors ** 2.0) * 255
-                budget = w.output.power_budget
-                if budget and rgb.sum() > budget:
-                    rgb *= budget / rgb.sum()
-                w.submit(np.ascontiguousarray(rgb, dtype=np.uint8))
+                w.submit(device_frame(colors, w.output))
             preview = self.preview
             if preview is not None and preview.id not in frames:
                 frames[preview.id] = self._render(preview.layout, a, palette, spatial)

@@ -14,6 +14,7 @@ import customtkinter as ctk
 
 from devices import scan_all
 from music import page as music_page
+from paint import page as paint_page
 from predictive import page as typing_page
 from version import __version__
 from widgets import (ACCENT, ACCENT_HOVER, BAD, BG, CARD, CARD_BORDER, FAINT, FIELD, FIELD_HOVER,
@@ -24,8 +25,12 @@ APPDATA = Path(os.environ.get("APPDATA", Path.home()))
 DATA_DIR = APPDATA / "Hotk33"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 LEARNED_FILE = DATA_DIR / "learned.json"
+LAYOUTS_FILE = DATA_DIR / "paint_layouts.json"
 ICON_FILE = DATA_DIR / "icon.ico"
-MUSIC, TYPING = "Music", "Typing"
+MUSIC, TYPING, PAINT = "Music", "Typing", "Paint"
+TAGLINES = {MUSIC: "Lighting that reacts to your music",
+            TYPING: "Lights up the keys you'll type next",
+            PAINT: "Paint your own lighting, key by key"}
 DEFAULTS = {
     "page": MUSIC,
     "running": False,         # was lighting when the app was closed: start again
@@ -33,6 +38,7 @@ DEFAULTS = {
     "preview_device": "",
     **music_page.DEFAULTS,
     **typing_page.DEFAULTS,
+    **paint_page.DEFAULTS,
 }
 
 # Settings of the two apps Hotk33 replaces, imported on first start.
@@ -75,11 +81,14 @@ def import_old_settings():
 def load_settings():
     settings = copy.deepcopy(DEFAULTS)
     saved = _read_json(SETTINGS_FILE)
-    settings.update({k: v for k, v in (saved if isinstance(saved, dict)
-                                       else import_old_settings()).items() if k in DEFAULTS})
-    if settings["page"] not in (MUSIC, TYPING):
+    saved = saved if isinstance(saved, dict) else import_old_settings()
+    if "custom_color" in saved and "custom_colors" not in saved:  # one color before 2.0
+        saved["custom_colors"] = [saved["custom_color"]]
+    settings.update({k: v for k, v in saved.items() if k in DEFAULTS})
+    if settings["page"] not in (MUSIC, TYPING, PAINT):
         settings["page"] = MUSIC
     music_page.check_settings(settings)
+    paint_page.check_settings(settings)
     return settings
 
 
@@ -130,6 +139,7 @@ class App:
         self.pages = {
             MUSIC: music_page.MusicPage(self, stage, bottom, footer),
             TYPING: typing_page.TypingPage(self, stage, bottom, footer, LEARNED_FILE, live),
+            PAINT: paint_page.PaintPage(self, stage, bottom, footer, LAYOUTS_FILE),
         }
         self.page = self.pages[self.settings["page"]]
         self.mode_btn.set(self.page.name)
@@ -190,9 +200,9 @@ class App:
         self.tagline.grid(row=1, column=1, sticky="nw")
 
         self.mode_btn = ctk.CTkSegmentedButton(
-            hdr, values=[MUSIC, TYPING], command=self.switch_page, font=self.fonts["bold"],
-            width=220, height=36, corner_radius=10, fg_color=FIELD, selected_color=ACCENT,
-            selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
+            hdr, values=[MUSIC, TYPING, PAINT], command=self.switch_page,
+            font=self.fonts["bold"], width=300, height=36, corner_radius=10, fg_color=FIELD,
+            selected_color=ACCENT, selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
             unselected_hover_color=FIELD_HOVER, text_color=TEXT)
         self.mode_btn.grid(row=0, column=2, rowspan=2, padx=20)
 
@@ -253,9 +263,10 @@ class App:
         stage.grid(row=0, column=0, sticky="nsew")
         bottom.grid(row=0, column=0, sticky="ew")
         footer.grid(row=0, column=0, sticky="w")
-        self.tagline.configure(text="Lighting that reacts to your music" if self.page.name == MUSIC
-                               else "Lights up the keys you'll type next")
-        self.dev_title.configure(text="DEVICES" if self.page.name == MUSIC else "KEYBOARDS")
+        self.tagline.configure(text=TAGLINES[self.page.name])
+        self.dev_title.configure(text="KEYBOARDS" if self.page.name == TYPING else "DEVICES")
+        if hasattr(self.page, "on_show"):
+            self.page.on_show()
         self._show_devices()
 
     # ------------------------------------------------------------ pages
@@ -343,7 +354,7 @@ class App:
         if not shown:
             text = ("Scanning..." if self._scanning else
                     "No lighting devices found.\nSee the README for what each brand needs."
-                    if self.page.name == MUSIC else
+                    if self.page.name != TYPING else
                     "No per-key keyboards found.\nSee the README for what each brand needs.")
             ctk.CTkLabel(self.dev_list, text=text, font=self.fonts["small"], text_color=MUTED,
                          justify="left").grid(row=0, column=0, sticky="w", padx=12, pady=8)
@@ -382,14 +393,15 @@ class App:
 
     def _select(self, out):
         if out is not None and not out.music:
-            return  # only Music mode previews a device
+            return  # Music previews the selected device, Paint paints it
         self.selected = out
         if out:
             self.settings["preview_device"] = out.id
         for dev_id, r in self.rows.items():
-            on = self.page.name == MUSIC and out is not None and dev_id == out.id
+            on = self.page.name != TYPING and out is not None and dev_id == out.id
             r["frame"].configure(fg_color=FIELD if on else "transparent")
         self.pages[MUSIC].select(out)
+        self.pages[PAINT].select(out)
 
     def _on_toggle_device(self, out, on):
         disabled = self.settings["disabled_devices"]

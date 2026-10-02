@@ -3,7 +3,7 @@
   Hotk33-<version>-windows-x64.zip       standalone app (no Python needed)
   Model100-MusicLEDs-<version>.bin       Keyboardio Model 100 firmware
 
-Run with the app's virtualenv:  .venv\Scripts\python.exe packaging\build_release.py
+Run with the app's virtualenv:  .venv\\Scripts\\python.exe packaging\\build_release.py
 Needs PyInstaller (packaging/requirements-dev.txt). The firmware is rebuilt
 when arduino-cli with the keyboardio:gd32 core is available, otherwise the
 existing firmware/build/Model100.ino.bin is used.

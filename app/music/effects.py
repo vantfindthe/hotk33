@@ -44,6 +44,14 @@ PALETTES = {
 }
 
 
+def gradient_palette(stops):
+    """A palette through the given colors (0..255 RGB), evenly spaced. One
+    color is a solid palette."""
+    if len(stops) == 1:
+        return solid_palette(stops[0])
+    return _gradient(*stops)
+
+
 def solid_palette(rgb):
     color = np.array(rgb, dtype=float) / 255.0
 

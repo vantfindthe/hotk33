@@ -92,6 +92,7 @@ class DevicePreview(tk.Canvas):
         self.layout = None
         self.title = ""
         self.items = []
+        self.origin, self.unit = (0, 0), 1
         self.colors = np.zeros((0, 3))
         self._base = rgb01(KEY_OFF)
         self._stage = rgb01(STAGE)
@@ -116,6 +117,7 @@ class DevicePreview(tk.Canvas):
         margin = 0.06 * min(w, h) + 22 * self.scale
         s = min((w - 2 * margin) / lay.width, (h - 2 * margin) / lay.depth, 60 * self.scale)
         ox, oy = (w - lay.width * s) / 2, (h - lay.depth * s) / 2
+        self.origin, self.unit = (ox, oy), s  # layout units -> pixels, for hit testing
         gap, radius, glow = 0.07 * s, 0.2 * s, 0.13 * s
         for x, y, kw, kh in lay.rects:
             x0, y0 = ox + x * s + gap, oy + y * s + gap
