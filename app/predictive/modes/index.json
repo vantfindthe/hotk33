@@ -1,0 +1,41 @@
+{
+  "python": {
+    "name": "Python",
+    "exts": [
+      ".py",
+      ".pyw"
+    ]
+  },
+  "javascript": {
+    "name": "JavaScript / TypeScript",
+    "exts": [
+      ".js",
+      ".mjs",
+      ".cjs",
+      ".jsx",
+      ".ts",
+      ".tsx"
+    ]
+  },
+  "powershell": {
+    "name": "PowerShell",
+    "exts": [
+      ".ps1",
+      ".psm1"
+    ]
+  },
+  "cmd": {
+    "name": "Command Prompt (cmd)",
+    "exts": [
+      ".bat",
+      ".cmd"
+    ]
+  },
+  "bash": {
+    "name": "Bash / Git Bash / WSL",
+    "exts": [
+      ".sh",
+      ".bash"
+    ]
+  }
+}

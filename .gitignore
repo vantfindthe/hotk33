@@ -14,7 +14,7 @@ firmware/build/
 firmware/flash.log
 
 # Local toolchain (install arduino-cli yourself - see README)
-tools/
+tools/arduino-cli/
 
 # Personal keyboard backups (EEPROM dumps)
 backup/
