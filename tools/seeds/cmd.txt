@@ -1,0 +1,107 @@
+cd ..
+cd \
+cd /d d:\
+cd %userprofile%
+d:
+c:
+dir
+dir /b
+dir /s /b *.py
+dir /a
+cls
+type readme.txt
+type file.txt | more
+copy a.txt b.txt
+copy /y src dest
+xcopy /e /i /y src dest
+robocopy src dest /mir
+move old.txt new.txt
+ren a.txt b.txt
+del file.txt
+del /q /f *.tmp
+rmdir /s /q build
+rd /s /q node_modules
+mkdir build
+md logs
+echo hello
+echo %path%
+echo %errorlevel%
+echo off
+@echo off
+set path=%path%;c:\tools
+set name=value
+setx path "%path%;c:\tools"
+set /p name=enter name:
+if exist file.txt del file.txt
+if not exist build mkdir build
+if errorlevel 1 goto error
+if "%1"=="" goto usage
+for %%f in (*.txt) do echo %%f
+for /r %%f in (*.log) do del %%f
+for /f "tokens=*" %%a in ('dir /b') do echo %%a
+goto end
+:end
+call build.bat
+start notepad
+start "" "%~dp0app.exe"
+exit /b 0
+exit /b %errorlevel%
+pause
+title build
+setlocal enabledelayedexpansion
+endlocal
+pushd %~dp0
+popd
+where python
+where git
+findstr /s /i "error" *.log
+find "text" file.txt
+tasklist
+tasklist | findstr python
+taskkill /im python.exe /f
+taskkill /f /pid 1234
+ipconfig
+ipconfig /all
+ipconfig /flushdns
+ping google.com
+ping -t 8.8.8.8
+tracert google.com
+nslookup example.com
+netstat -ano
+netstat -ano | findstr :8080
+systeminfo
+hostname
+whoami
+ver
+chkdsk c: /f
+sfc /scannow
+shutdown /r /t 0
+shutdown /s /t 0
+attrib -r -h file.txt
+tree /f
+fc a.txt b.txt
+sort file.txt
+more file.txt
+assoc .txt
+mklink /d link target
+icacls file.txt
+powershell -noprofile -command
+python app.py
+python -m venv .venv
+.venv\scripts\activate
+.venv\scripts\activate.bat
+pip install -r requirements.txt
+git status
+git add .
+git commit -m "update"
+git push
+git pull
+git log --oneline
+git checkout main
+npm install
+npm run dev
+npm start
+node index.js
+code .
+winget install
+exit

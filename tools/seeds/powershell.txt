@@ -1,0 +1,138 @@
+cd ..
+cd ~
+cd d:\
+ls
+ls -force
+dir
+cls
+clear
+pwd
+get-childitem
+get-childitem -recurse -filter *.py
+get-childitem -path . -recurse -file
+gci -recurse
+get-content .\readme.md
+get-content log.txt -tail 50 -wait
+cat .\settings.json
+set-location ..
+new-item -itemtype directory -force build
+new-item -itemtype file test.txt
+remove-item -recurse -force node_modules
+remove-item .\build -recurse -force
+copy-item .\a.txt .\b.txt
+move-item .\old .\new
+rename-item .\a.txt b.txt
+test-path .\config.json
+get-process
+get-process | where-object { $_.cpu -gt 100 }
+get-process python | stop-process -force
+stop-process -name node -force
+get-service | where-object { $_.status -eq 'running' }
+start-service wuauserv
+restart-service spooler
+get-command git
+get-help get-childitem -examples
+get-member
+select-object -first 10
+select-object name, length
+sort-object length -descending
+where-object { $_.length -gt 1mb }
+foreach-object { $_.name }
+measure-object -sum
+format-table -autosize
+format-list *
+out-file -encoding utf8 out.txt
+set-content -path .\a.txt -value 'hello'
+add-content -path .\log.txt -value $line
+select-string -path *.py -pattern 'import'
+invoke-webrequest -uri $url -outfile file.zip
+invoke-restmethod -uri $url
+expand-archive .\file.zip -destinationpath .\out
+compress-archive -path .\src -destinationpath src.zip
+start-process notepad
+start-process powershell -verb runas
+write-host "done"
+write-output $result
+$env:path
+$env:path -split ';'
+$env:userprofile
+$psversiontable
+$profile
+$null = new-item
+$files = get-childitem
+$result = invoke-restmethod $url
+if ($?) { write-host ok }
+if (test-path $path) { remove-item $path }
+foreach ($f in $files) { $f.fullname }
+try { } catch { write-error $_ }
+function test-thing { param($name) }
+param([string]$path)
+[string]::isnullorempty($x)
+[math]::round($x, 2)
+get-date -format 'yyyy-mm-dd'
+get-itemproperty hklm:\software\microsoft\windows\currentversion
+get-pnpdevice -presentonly
+get-netipaddress
+test-netconnection google.com -port 443
+resolve-dnsname example.com
+get-volume
+get-disk
+get-ciminstance win32_operatingsystem
+get-eventlog -logname system -newest 20
+get-history
+clear-history
+import-module .\module.psm1
+install-module -name pester -scope currentuser
+set-executionpolicy -scope currentuser remotesigned
+.\venv\scripts\activate
+.\.venv\scripts\activate.ps1
+python -m venv .venv
+python -m pip install -r requirements.txt
+pip install requests
+python app.py
+python -m pytest
+py -3.12 -m venv .venv
+git status
+git add .
+git add -a
+git commit -m "fix"
+git commit -am "update"
+git push
+git push origin main
+git pull
+git pull --rebase
+git fetch
+git checkout -b feature
+git checkout main
+git switch main
+git branch -a
+git log --oneline
+git log --oneline --graph
+git diff
+git diff --staged
+git stash
+git stash pop
+git merge main
+git rebase main
+git reset --hard head
+git clone https://github.com/
+git remote -v
+npm install
+npm i
+npm run dev
+npm run build
+npm start
+npm test
+npx create-vite
+node index.js
+code .
+winget install
+winget upgrade --all
+choco install
+docker ps
+docker compose up -d
+docker build -t app .
+ssh user@server
+ipconfig /all
+ping google.com
+exit

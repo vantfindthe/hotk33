@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local state (settings and learned words live in %APPDATA%, but just in case)
+learned.json
+settings.json
+*.tmp

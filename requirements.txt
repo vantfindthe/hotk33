@@ -1,0 +1,7 @@
+pyserial
+hidapi
+openrgb-python
+customtkinter
+comtypes
+# only for rebuilding app/words_en.txt (tools/build_wordlist.py)
+wordfreq

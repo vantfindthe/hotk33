@@ -1,0 +1,141 @@
+cd ..
+cd ~
+cd -
+cd /d/
+cd /mnt/c/users
+ls
+ls -la
+ls -lh
+ll
+pwd
+clear
+cat file.txt
+less file.txt
+head -n 20 file.txt
+tail -f log.txt
+tail -n 100 log.txt
+touch file.txt
+mkdir -p build/out
+rm file.txt
+rm -rf node_modules
+rm -rf build
+cp a.txt b.txt
+cp -r src dest
+mv old.txt new.txt
+ln -s target link
+chmod +x script.sh
+chmod 755 file
+chown user:user file
+./script.sh
+bash script.sh
+source ~/.bashrc
+source .venv/bin/activate
+source .venv/scripts/activate
+export path=$path:~/bin
+export name=value
+echo $path
+echo $home
+echo "hello"
+echo $?
+which python
+which git
+grep -r "text" .
+grep -rn "todo" src/
+grep -i error log.txt
+find . -name "*.py"
+find . -type f -name "*.log" -delete
+find . -type d -name node_modules
+xargs
+sed -i 's/old/new/g' file.txt
+awk '{print $1}' file.txt
+sort file.txt | uniq -c
+wc -l file.txt
+cut -d, -f1 file.csv
+diff a.txt b.txt
+tar -xzf file.tar.gz
+tar -czf out.tar.gz dir
+unzip file.zip
+zip -r out.zip dir
+curl -o file.zip $url
+curl -s https://
+curl -x post -h "content-type: application/json" -d
+wget https://
+ssh user@host
+scp file user@host:~/
+rsync -avz src/ user@host:dest/
+ps aux
+ps aux | grep python
+kill -9 1234
+pkill node
+top
+htop
+df -h
+du -sh *
+free -h
+uname -a
+whoami
+history
+history | grep git
+sudo apt update
+sudo apt upgrade -y
+sudo apt install
+sudo systemctl status nginx
+sudo systemctl restart nginx
+sudo journalctl -u nginx -f
+sudo !!
+nano file.txt
+vim file.txt
+code .
+python3 app.py
+python3 -m venv .venv
+python -m pip install -r requirements.txt
+pip install
+git status
+git add .
+git add -a
+git commit -m "fix"
+git commit -am "update"
+git push
+git push origin main
+git push -u origin
+git pull
+git pull --rebase
+git fetch --all
+git checkout -b feature
+git checkout main
+git switch -c feature
+git branch -d feature
+git log --oneline
+git log --oneline --graph --all
+git diff
+git diff --staged
+git stash
+git stash pop
+git merge main
+git rebase -i head~3
+git reset --hard head
+git reset head~1
+git clone git@github.com:
+git remote -v
+npm install
+npm i -d
+npm run dev
+npm run build
+npm test
+npx
+node index.js
+docker ps
+docker ps -a
+docker compose up -d
+docker compose down
+docker build -t app .
+docker run -it --rm
+docker exec -it app bash
+docker logs -f app
+for f in *.txt; do echo $f; done
+if [ -f file ]; then echo yes; fi
+if [ -z "$1" ]; then exit 1; fi
+while read line; do echo $line; done < file
+$(pwd)
+alias ll='ls -la'
+exit
