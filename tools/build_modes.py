@@ -1,4 +1,4 @@
-"""Builds the coding / terminal prediction models in app/modes/.
+"""Builds the coding / terminal prediction models in app/predictive/modes/.
 
 Each mode is trained on source files found on this PC (plus, for terminals,
 the hand-written command lists in tools/seeds/). Run from the project folder:
@@ -27,7 +27,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / "app" / "modes"
+OUT = ROOT / "app" / "predictive" / "modes"
 SEEDS = Path(__file__).resolve().parent / "seeds"
 
 ORDER = 7            # predict from up to 6 previous characters

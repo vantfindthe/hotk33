@@ -1,4 +1,4 @@
-"""Builds app/words_en.txt (word<TAB>frequency per billion words) from wordfreq.
+"""Builds app/predictive/words_en.txt (word<TAB>frequency per billion words) from wordfreq.
 
 Only needed to regenerate the list: python tools/build_wordlist.py [count]
 """
@@ -14,7 +14,7 @@ SINGLE_LETTER_WORDS = {"a", "i"}
 
 
 def main(count=60000):
-    out = Path(__file__).resolve().parent.parent / "app" / "words_en.txt"
+    out = Path(__file__).resolve().parent.parent / "app" / "predictive" / "words_en.txt"
     lines = []
     for w in top_n_list("en", count):
         if not WORD.match(w) or (len(w) == 1 and w not in SINGLE_LETTER_WORDS):

@@ -1,38 +1,28 @@
-"""Predictive Key Lights: lights up the keys you're most likely to type next.
+"""Typing mode's part of the window: what you typed, the next-key guesses on
+a keyboard, the prediction mode, learning and privacy."""
 
-Best guess green, second yellow, third red; every other key dark. Updates on
-every key press, on every connected keyboard it can drive.
-"""
-
-import copy
-import ctypes
-import json
-import os
-import sys
 import threading
 import time
 import tkinter as tk
-import winsound
 from pathlib import Path
 from tkinter import messagebox
 
 import customtkinter as ctk
 
 import keys
-from engine import AUTO, Engine
-from hook import KeyboardHook, format_hotkey, parse_hotkey
-from modes import Detector
-from predict import Models
+from widgets import (BAD, CARD, CARD_BORDER, FAINT, FIELD, FIELD_HOVER, FONT, GOOD,
+                     INFO, KEY_OFF, MUTED, STAGE, TEXT, WARN, blend, rounded_points)
+from .engine import AUTO, Engine
+from .hook import KeyboardHook, format_hotkey, parse_hotkey
+from .modes import Detector
+from .predict import Models
 
-HERE = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("APPDATA", HERE)) / "PredictiveKeyLights"
-SETTINGS_PATH = DATA_DIR / "settings.json"
-LEARNED_PATH = DATA_DIR / "learned.json"
+MONO = "Cascadia Mono"
+KEY_TEXT = "#7c7c8c"
 AUTOSAVE_S = 60
-
 DEFAULTS = {
-    "mode": AUTO,                    # "auto" (by window) or a mode id
-    "colors": [[0, 255, 0], [255, 190, 0], [255, 0, 0]],  # 1st, 2nd, 3rd guess
+    "typing_mode": AUTO,             # "auto" (by window) or a mode id
+    "key_colors": [[0, 255, 0], [255, 190, 0], [255, 0, 0]],  # 1st, 2nd, 3rd guess
     "white_levels": [255, 80, 18],   # same, for white-only keyboards (G610)
     "remember_words": False,         # keep learned words between sessions
     "show_text": True,               # show the typed context in the window
@@ -40,304 +30,264 @@ DEFAULTS = {
     "hotkey_sound": True,            # beep up / down when private mode switches
     "idle_release_s": 0,             # give keyboards their own lighting back after
                                      # this many idle seconds (0 = never)
-    "disabled_devices": [],
 }
-
-# palette
-BG = "#0e1014"
-CARD = "#161920"
-BORDER = "#242833"
-KEY = "#232731"
-KEY_TEXT = "#7c8496"
-TEXT = "#e9ebf1"
-MUTED = "#8a91a3"
-ACCENT = "#5b8cff"
-GOOD, WARN, BAD, IDLE = "#3ddc84", "#f2b33d", "#ff6b5e", "#5d6475"
-FONT = "Segoe UI"
-MONO = "Cascadia Mono"
-
-
-def load_settings():
-    settings = copy.deepcopy(DEFAULTS)
-    try:
-        settings.update(json.loads(SETTINGS_PATH.read_text(encoding="utf-8")))
-    except (OSError, ValueError):
-        pass
-    return settings
-
-
-def save_settings(settings):
-    try:
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        SETTINGS_PATH.write_text(json.dumps(settings, indent=2), encoding="utf-8")
-    except OSError:
-        pass
+# slot status: dot color
+DOTS = {"lit": GOOD, "idle": INFO, "ready": WARN}
 
 
 def hex_color(rgb):
     return "#%02x%02x%02x" % tuple(rgb)
 
 
-def blend(fg, bg, amount):
-    """fg over bg at `amount` (0..1), both '#rrggbb'."""
-    f = [int(fg[i:i + 2], 16) for i in (1, 3, 5)]
-    b = [int(bg[i:i + 2], 16) for i in (1, 3, 5)]
-    return hex_color([round(b[i] + (f[i] - b[i]) * amount) for i in range(3)])
-
-
-def rounded_rect(canvas, x1, y1, x2, y2, r, **kw):
-    pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
-           x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
-    return canvas.create_polygon(pts, smooth=True, **kw)
-
-
-def card(parent, **kw):
-    return ctk.CTkFrame(parent, fg_color=CARD, corner_radius=14, border_width=1,
-                        border_color=BORDER, **kw)
-
-
-def heading(parent, text):
-    return ctk.CTkLabel(parent, text=text.upper(), text_color=MUTED,
-                        font=(FONT, 11, "bold"), anchor="w")
-
-
-def pill(parent, text="", color=IDLE, **kw):
-    return ctk.CTkLabel(parent, text=text, fg_color=blend(color, CARD, 0.18),
-                        text_color=color, corner_radius=10, height=24,
-                        font=(FONT, 12, "bold"), **kw)
-
-
-class App:
+class TypingPage:
+    name = "Typing"
     KEY_W = 46    # key size before DPI scaling
     GAP = 6
 
-    def __init__(self, root, live=True):
+    def __init__(self, app, stage, bottom, footer, learned_path, live=True):
         """live=False (screenshots): no keyboard hook, no lighting."""
-        self.root = root
-        self.settings = load_settings()
-        learned = LEARNED_PATH if self.settings["remember_words"] else None
-        self.models = Models(HERE, learned)
+        self.app = app
+        self.settings = app.settings
+        self.learned_path = learned_path
+        self.live = live
+        learned = learned_path if self.settings["remember_words"] else None
+        self.models = Models(Path(__file__).resolve().parent, learned)
         self.mode_names = self.models.names()
-        if self.settings["mode"] not in self.mode_names:
-            self.settings["mode"] = AUTO
+        if self.settings["typing_mode"] not in self.mode_names:
+            self.settings["typing_mode"] = AUTO
         self.engine = Engine(self.models, Detector(self.models.index), self.settings)
         self.engine.on_private = self._private_sound
-        threading.Thread(target=self.models.preload, name="preload", daemon=True).start()
+        self.hook = None
+        self.hotkey_label = format_hotkey(self.settings["private_hotkey"])
+        self.hotkey_error = ""
         self.seen_version = -1
         self.saved_at = time.monotonic()
-        self.device_sig = None
-        self.hotkey_label = format_hotkey(self.settings["private_hotkey"])
-        self.hotkey_error = None
+        self._preloading = False
+        f = app.fonts
 
-        root.title("Predictive Key Lights")
-        root.configure(fg_color=BG)
-        root.resizable(False, False)
-        try:
-            root.iconbitmap(default=str(HERE / "icon.ico"))
-        except tk.TclError:
-            pass
-        self._build()
-
-        hotkeys = {}
-        try:
-            hotkeys[parse_hotkey(self.settings["private_hotkey"])] = self.engine.toggle_private
-        except ValueError as e:
-            self.hotkey_error = str(e)
-        self.hook = KeyboardHook(self.engine.on_key, hotkeys)
-        if live:
-            try:
-                self.hook.start()
-            except OSError as e:
-                self.hotkey_error = str(e)
-            threading.Thread(target=self.engine.run, name="sender", daemon=True).start()
-            self.rescan()
-        root.protocol("WM_DELETE_WINDOW", self.quit)
-        self._poll()
-
-    # ------------------------------------------------------------------ UI
-
-    def _build(self):
-        outer = ctk.CTkFrame(self.root, fg_color=BG)
-        outer.pack(fill="both", expand=True, padx=18, pady=(14, 16))
-
-        # header
-        head = ctk.CTkFrame(outer, fg_color=BG)
-        head.pack(fill="x", pady=(0, 12))
-        dots = tk.Canvas(head, width=46, height=22, bg=BG, highlightthickness=0)
-        for i, c in enumerate(self.settings["colors"]):
-            dots.create_oval(2 + i * 15, 5, 14 + i * 15, 17, fill=hex_color(c), width=0)
-        dots.pack(side="left", padx=(0, 8))
-        ctk.CTkLabel(head, text="Predictive Key Lights", text_color=TEXT,
-                     font=(FONT, 20, "bold")).pack(side="left")
-        ctk.CTkLabel(head, text="   lights the keys you'll type next", text_color=MUTED,
-                     font=(FONT, 13)).pack(side="left", pady=(4, 0))
-        self.state_pill = pill(head, " Live ", GOOD, width=110)
-        self.state_pill.pack(side="right")
-
-        # typing card: mode, context, predictions, keyboard
-        typing = card(outer)
-        typing.pack(fill="x")
-        row = ctk.CTkFrame(typing, fg_color=CARD)
-        row.pack(fill="x", padx=16, pady=(14, 4))
-        heading(row, "Mode").pack(side="left", padx=(0, 10))
+        # stage: mode, typed text + guesses, keyboard
+        self.stage = ctk.CTkFrame(stage, fg_color=STAGE, corner_radius=16, border_width=1,
+                                  border_color=CARD_BORDER)
+        self.stage.grid_columnconfigure(0, weight=1)
+        self.stage.grid_rowconfigure(2, weight=1)
+        row = ctk.CTkFrame(self.stage, fg_color="transparent")
+        row.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 4))
+        row.grid_columnconfigure(2, weight=1)
+        app.section(row, "Predict").grid(row=0, column=0, padx=(0, 10))
         self.mode_choices = {"Auto - follow the window I'm typing in": AUTO}
         self.mode_choices.update({name: m for m, name in self.mode_names.items()})
         current = next(label for label, m in self.mode_choices.items()
-                       if m == self.settings["mode"])
+                       if m == self.settings["typing_mode"])
         ctk.CTkOptionMenu(row, values=list(self.mode_choices), command=self.choose_mode,
                           variable=tk.StringVar(value=current), width=300, height=30,
-                          fg_color=KEY, button_color=BORDER, button_hover_color="#2f3442",
-                          dropdown_fg_color=CARD, dropdown_hover_color=KEY,
-                          text_color=TEXT, font=(FONT, 13), dropdown_font=(FONT, 13),
-                          corner_radius=8).pack(side="left")
-        self.mode_label = ctk.CTkLabel(row, text="", text_color=MUTED, font=(FONT, 12),
+                          fg_color=FIELD, button_color=FIELD, button_hover_color=FIELD_HOVER,
+                          dropdown_fg_color=CARD, dropdown_hover_color=FIELD_HOVER,
+                          text_color=TEXT, dropdown_text_color=TEXT, font=f["body"],
+                          dropdown_font=f["body"], corner_radius=8,
+                          dynamic_resizing=False).grid(row=0, column=1)
+        self.mode_label = ctk.CTkLabel(row, text="", text_color=MUTED, font=f["small"],
                                        anchor="w")
-        self.mode_label.pack(side="left", padx=12, fill="x", expand=True)
+        self.mode_label.grid(row=0, column=2, sticky="ew", padx=12)
 
-        row = ctk.CTkFrame(typing, fg_color=CARD)
-        row.pack(fill="x", padx=16, pady=(6, 4))
+        row = ctk.CTkFrame(self.stage, fg_color="transparent")
+        row.grid(row=1, column=0, sticky="ew", padx=20, pady=(8, 0))
+        row.grid_columnconfigure(0, weight=1)
         self.context = ctk.CTkLabel(row, text="", text_color=TEXT, font=(MONO, 17),
                                     anchor="w")
-        self.context.pack(side="left", fill="x", expand=True)
+        self.context.grid(row=0, column=0, sticky="ew")
         self.chips = []
         for i, caption in enumerate(("1st", "2nd", "3rd")):
-            col = ctk.CTkFrame(row, fg_color=CARD)
-            col.pack(side="left", padx=(8, 0))
+            col = ctk.CTkFrame(row, fg_color="transparent")
+            col.grid(row=0, column=1 + i, padx=(8, 0))
             chip = ctk.CTkLabel(col, text="", width=46, height=40, corner_radius=10,
-                                fg_color=KEY, text_color="#0b0d10", font=(FONT, 18, "bold"))
+                                fg_color=KEY_OFF, text_color="#0b0d10",
+                                font=(FONT, 18, "bold"))
             chip.pack()
             ctk.CTkLabel(col, text=caption, text_color=MUTED, font=(FONT, 10),
                          height=14).pack()
             self.chips.append(chip)
+        self._build_keyboard(self.stage)
 
-        self._build_keyboard(typing)
+        # bottom: learning, privacy
+        self.bottom = ctk.CTkFrame(bottom, fg_color="transparent")
+        self.bottom.grid_columnconfigure(0, weight=1, uniform="typing")
+        self.bottom.grid_columnconfigure(1, weight=1, uniform="typing")
 
-        # devices + learning side by side
-        lower = ctk.CTkFrame(outer, fg_color=BG)
-        lower.pack(fill="x", pady=(12, 0))
-        lower.grid_columnconfigure(0, weight=3, uniform="c")
-        lower.grid_columnconfigure(1, weight=2, uniform="c")
-
-        dev = card(lower)
-        dev.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        top = ctk.CTkFrame(dev, fg_color=CARD)
-        top.pack(fill="x", padx=16, pady=(12, 4))
-        heading(top, "Keyboards").pack(side="left")
-        ctk.CTkButton(top, text="Rescan", width=70, height=24, corner_radius=8,
-                      fg_color=KEY, hover_color=BORDER, text_color=TEXT, font=(FONT, 12),
-                      command=self.rescan).pack(side="right")
-        self.dev_list = ctk.CTkFrame(dev, fg_color=CARD)
-        self.dev_list.pack(fill="both", expand=True, padx=16, pady=(0, 12))
-
-        learn = card(lower)
-        learn.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        heading(learn, "Learning").pack(fill="x", padx=16, pady=(12, 4))
-        self.learned_label = ctk.CTkLabel(learn, text="", text_color=TEXT, font=(FONT, 12),
-                                          anchor="w", justify="left", wraplength=290)
-        self.learned_label.pack(fill="x", padx=16)
-        self.remember = tk.BooleanVar(value=self.settings["remember_words"])
-        self._switch(learn, "Remember between sessions", self.remember,
-                     self.toggle_remember).pack(fill="x", padx=16, pady=(10, 4))
+        learn = app.card(self.bottom, "Learning", row=0, column=0, sticky="nsew", padx=(0, 12))
+        self.learned_label = ctk.CTkLabel(learn, text="", text_color=TEXT, font=f["small"],
+                                          anchor="w", justify="left", wraplength=420)
+        self.learned_label.grid(row=1, column=0, sticky="ew", padx=18)
+        self.remember = app.switch(learn, "Remember between sessions", self.toggle_remember)
+        if self.settings["remember_words"]:
+            self.remember.select()
+        self.remember.grid(row=2, column=0, sticky="w", padx=18, pady=(10, 6))
         ctk.CTkButton(learn, text="Forget everything learned", height=28, corner_radius=8,
-                      fg_color=KEY, hover_color=blend(BAD, KEY, 0.35), text_color=TEXT,
-                      font=(FONT, 12), command=self.forget
-                      ).pack(fill="x", padx=16, pady=(4, 14))
+                      fg_color=FIELD, hover_color=blend(BAD, FIELD, 0.35), text_color=TEXT,
+                      font=f["small"], command=self.forget
+                      ).grid(row=3, column=0, sticky="w", padx=18, pady=(4, 14))
 
-        # controls
-        bar = ctk.CTkFrame(outer, fg_color=BG)
-        bar.pack(fill="x", pady=(12, 0))
-        self.pause_btn = ctk.CTkButton(bar, text="Pause", width=100, height=34,
-                                       corner_radius=10, fg_color=ACCENT,
-                                       hover_color=blend(ACCENT, BG, 0.8),
-                                       font=(FONT, 13, "bold"), command=self.toggle_pause)
-        self.pause_btn.pack(side="left")
-        self.private_btn = ctk.CTkButton(bar, text="", width=230, height=34, corner_radius=10,
-                                         fg_color=KEY, hover_color=BORDER, text_color=TEXT,
-                                         font=(FONT, 13), command=self.engine.toggle_private)
-        self.private_btn.pack(side="left", padx=8)
-        self.show_text = tk.BooleanVar(value=self.settings["show_text"])
-        self._switch(bar, "Show typed text", self.show_text, self.toggle_show_text,
-                     bg=BG).pack(side="right")
-        self.status = ctk.CTkLabel(outer, text="", text_color=MUTED, font=(FONT, 11),
-                                   anchor="w", justify="left")
-        self.status.pack(fill="x", pady=(10, 0))
+        privacy = app.card(self.bottom, "Privacy", row=0, column=1, sticky="nsew")
+        ctk.CTkLabel(privacy, text="Password fields are skipped automatically: nothing typed "
+                                   "there is read, and every key goes dark. For prompts Windows "
+                                   "can't see as password fields, use private mode.",
+                     text_color=MUTED, font=f["small"], anchor="w", justify="left",
+                     wraplength=420).grid(row=1, column=0, sticky="ew", padx=18)
+        self.private_btn = ctk.CTkButton(privacy, text="", height=32, corner_radius=8,
+                                         fg_color=FIELD, hover_color=FIELD_HOVER,
+                                         text_color=TEXT, font=f["body"],
+                                         command=self.toggle_private)
+        self.private_btn.grid(row=2, column=0, sticky="w", padx=18, pady=(10, 6))
+        self.show_text = app.switch(privacy, "Show typed text", self.toggle_show_text)
+        if self.settings["show_text"]:
+            self.show_text.select()
+        self.show_text.grid(row=3, column=0, sticky="w", padx=18, pady=(4, 14))
 
-    @staticmethod
-    def _switch(parent, text, var, command, bg=CARD):
-        return ctk.CTkSwitch(parent, text=text, variable=var, command=command,
-                             onvalue=True, offvalue=False, progress_color=ACCENT,
-                             button_color=TEXT, button_hover_color="#ffffff", fg_color=BORDER,
-                             text_color=TEXT, font=(FONT, 12), bg_color=bg)
+        self.footer = ctk.CTkFrame(footer, fg_color="transparent", width=10, height=32)
+        self.frames = [self.stage, self.bottom, self.footer]
+        self.refresh(force=True)
 
     def _build_keyboard(self, parent):
-        s = ctk.ScalingTracker.get_window_scaling(self.root)
+        s = self.app.scale
         k, g = self.KEY_W * s, self.GAP * s
-        pad = 6 * s
-        width = 13 * (k + g) + 1.6 * k + 2 * pad
-        height = 5 * (k + g) - g + 2 * pad
-        self.canvas = tk.Canvas(parent, width=width, height=height, bg=CARD,
+        unit, pad = k + g, 6 * s
+        width = keys.WIDTH * unit - g + 2 * pad
+        height = 5 * unit - g + 2 * pad
+        self.canvas = tk.Canvas(parent, width=width, height=height, bg=STAGE,
                                 highlightthickness=0)
-        self.canvas.pack(padx=16, pady=(6, 16))
+        self.canvas.grid(row=2, column=0, padx=16, pady=(10, 18))
         self.key_items = {}
-        offsets = [0, 0.6, 0.85, 1.3]
-        for r, row in enumerate(keys.ROWS):
-            for c, key in enumerate(row):
-                self._key(key, pad + (offsets[r] + c) * (k + g), pad + r * (k + g), k, k, s)
-        self._key("space", pad + 3.3 * (k + g), pad + 4 * (k + g), 6.2 * k + 5 * g, k, s)
-        enter_x = pad + (offsets[2] + len(keys.ROWS[2])) * (k + g)
-        self._key("enter", enter_x, pad + 2 * (k + g), width - pad - enter_x, k, s)
+        for key, (x, y, w, h) in keys.POSITIONS.items():
+            self._key(key, pad + x * unit, pad + y * unit, w * unit - g, h * unit - g, s)
 
     def _key(self, key, x, y, w, h, s):
-        r = 9 * s
-        glow = rounded_rect(self.canvas, x - 3 * s, y - 3 * s, x + w + 3 * s, y + h + 3 * s,
-                            r + 3 * s, fill=CARD, outline="")
-        body = rounded_rect(self.canvas, x, y, x + w, y + h, r, fill=KEY, outline="")
+        r, glow = 9 * s, 3 * s
+        halo = self.canvas.create_polygon(
+            rounded_points(x - glow, y - glow, x + w + glow, y + h + glow, r + glow),
+            smooth=True, fill=STAGE, outline="")
+        body = self.canvas.create_polygon(rounded_points(x, y, x + w, y + h, r), smooth=True,
+                                          fill=KEY_OFF, outline="")
         label = self.canvas.create_text(x + w / 2, y + h / 2, text=keys.label(key),
                                         fill=KEY_TEXT, font=(FONT, 12, "bold"))
-        self.key_items[key] = (glow, body, label)
+        self.key_items[key] = (halo, body, label)
 
-    # ------------------------------------------------------------- refresh
+    # ------------------------------------------------------------ devices
 
-    def _poll(self):
+    @staticmethod
+    def shows(out):
+        return out.typing or not out.available
+
+    def set_outputs(self, outputs):
+        self.engine.set_outputs(outputs, set(self.settings["disabled_devices"]))
+
+    def set_enabled(self, out, on):
+        self.engine.set_enabled(out.id, on)
+
+    def select(self, out):
+        pass
+
+    def device_state(self, out):
+        """(dot color, error message or "") of a device row while running."""
+        with self.engine.lock:
+            for slot in self.engine.slots:
+                if slot.kb.id == out.id:
+                    if not slot.ok:
+                        return BAD, slot.status
+                    return DOTS.get(slot.status, FAINT), ""
+        return FAINT, ""
+
+    # ------------------------------------------------------------ running
+
+    @property
+    def running(self):
+        return self.engine.running
+
+    def start(self):
+        if not self.live:
+            return
+        if not self._preloading:  # load every mode's model in the background
+            self._preloading = True
+            threading.Thread(target=self.models.preload, name="preload", daemon=True).start()
+        hotkeys, self.hotkey_error = {}, ""
+        try:
+            hotkeys[parse_hotkey(self.settings["private_hotkey"])] = self.engine.toggle_private
+        except ValueError as e:
+            self.hotkey_error = str(e)
+        self.engine.start()
+        self.hook = KeyboardHook(self.engine.on_key, hotkeys)
+        try:
+            self.hook.start()
+        except OSError as e:
+            self.hotkey_error = str(e)
+
+    def stop(self):
+        if self.hook:
+            self.hook.stop()
+            self.hook = None
+        self.engine.stop()
+        self._save_learned()
+
+    def pill(self):
+        eng = self.engine
+        if eng.private:
+            return "Private", WARN
+        if eng.secret:
+            return "Password field", WARN
+        if eng.idle:
+            return "Idle", INFO
+        lit = sum(s.status == "lit" for s in eng.slots)
+        if lit:
+            return f"Live  ·  {lit} keyboard{'s' if lit > 1 else ''}", GOOD
+        if any(not s.ok for s in eng.slots):
+            return "Device error", BAD
+        return "Live  ·  no keyboard", WARN
+
+    def message(self):
+        msg = [self.hotkey_error] if self.hotkey_error else []
+        if not self.engine.slots:
+            msg.append("No per-key keyboard found. Start G HUB / Razer Synapse / SteelSeries GG "
+                       "/ OpenRGB (SDK server), plug in the Model 100, then Scan.")
+        return "   ".join(msg) or ("Green = best guess · yellow = 2nd · red = 3rd. "
+                                   "Password fields are skipped automatically.")
+
+    def tick(self):
         if self.engine.version != self.seen_version:
-            self._refresh()
-        if self.remember.get() and time.monotonic() - self.saved_at > AUTOSAVE_S:
+            self.refresh()
+        if (self.settings["remember_words"] and self.running
+                and time.monotonic() - self.saved_at > AUTOSAVE_S):
             self.saved_at = time.monotonic()
             threading.Thread(target=self._save_learned, daemon=True).start()
-        self.root.after(30, self._poll)
 
-    def _refresh(self):
+    def refresh(self, force=False):
         eng = self.engine
         with eng.lock:
+            if eng.version == self.seen_version and not force:
+                return
             self.seen_version = eng.version
             lit, preds, text = dict(eng.lit), list(eng.predictions), eng.text
             mode, reason, auto = eng.mode, eng.mode_reason, eng.auto
             secret, private = eng.secret, eng.private
-            paused, idle = eng.paused, eng.idle
-            slots = [(s, s.kb.name, s.kb.detail, s.enabled and s.kb.available, s.status,
-                      s.ok, s.kb.available) for s in eng.slots]
-            problems = list(eng.problems)
             learned = self.models.stats()
+        running = self.running
 
-        colors = [hex_color(c) for c in self.settings["colors"]]
-        for key, (glow, body, label) in self.key_items.items():
+        colors = [hex_color(c) for c in self.settings["key_colors"]]
+        for key, (halo, body, label) in self.key_items.items():
             rank = lit.get(key)
             if rank is None:
-                self.canvas.itemconfig(glow, fill=CARD)
-                self.canvas.itemconfig(body, fill=KEY)
+                self.canvas.itemconfig(halo, fill=STAGE)
+                self.canvas.itemconfig(body, fill=KEY_OFF)
                 self.canvas.itemconfig(label, fill=KEY_TEXT)
             else:
-                self.canvas.itemconfig(glow, fill=blend(colors[rank], CARD, 0.35))
+                self.canvas.itemconfig(halo, fill=blend(colors[rank], STAGE, 0.35))
                 self.canvas.itemconfig(body, fill=colors[rank])
                 self.canvas.itemconfig(label, fill="#0b0d10")
         for i, chip in enumerate(self.chips):
-            ch = preds[i] if i < len(preds) else ""
+            ch = preds[i] if i < len(preds) and running else ""
             chip.configure(text={" ": "␣", "\n": "⏎"}.get(ch, ch.upper()),
-                           fg_color=colors[i] if ch else KEY)
+                           fg_color=colors[i] if ch else KEY_OFF)
 
         name = self.mode_names.get(mode, mode)
-        self.mode_label.configure(
-            text=f"Using {name}" + (f"  ·  {reason}" if auto and reason else ""))
+        why = f"Using {name}" + (f"  ·  {reason}" if auto and reason else "")
+        self.mode_label.configure(text=why if len(why) <= 52 else why[:51] + "…")
 
         if private:
             self.context.configure(text=f"Private mode - nothing is read until you press "
@@ -346,131 +296,66 @@ class App:
         elif secret:
             self.context.configure(text="Password field - not recorded, keys dark",
                                    text_color=WARN, font=(FONT, 14, "bold"))
-        elif not self.show_text.get():
+        elif not running:
+            self.context.configure(text="Press Start - then type anywhere", text_color=MUTED,
+                                   font=(FONT, 14))
+        elif not self.settings["show_text"]:
             self.context.configure(text="typing hidden", text_color=MUTED, font=(FONT, 14))
         else:
             shown = text[-40:].replace("\n", "⏎")
             self.context.configure(text=(shown or "start typing anywhere") + "▏",
                                    text_color=TEXT if shown else MUTED, font=(MONO, 17))
 
-        if paused:
-            self.state_pill.configure(text="Paused", text_color=IDLE,
-                                      fg_color=blend(IDLE, BG, 0.25))
-        elif private or secret:
-            self.state_pill.configure(text="Private" if private else "Password",
-                                      text_color=WARN, fg_color=blend(WARN, BG, 0.18))
-        elif idle:
-            self.state_pill.configure(text="Idle", text_color=IDLE,
-                                      fg_color=blend(IDLE, BG, 0.25))
-        else:
-            self.state_pill.configure(text="● Live", text_color=GOOD,
-                                      fg_color=blend(GOOD, BG, 0.15))
-        self.pause_btn.configure(text="Resume" if paused else "Pause")
         self.private_btn.configure(
             text=f"{'End private mode' if private else 'Private mode'}   {self.hotkey_label}",
-            fg_color=blend(WARN, BG, 0.3) if private else KEY)
+            fg_color=blend(WARN, CARD, 0.3) if private else FIELD)
 
-        if learned:
-            lines = [f"{n}:  {s}" for n, s in learned]
-        else:
-            lines = ["Nothing yet - it learns as you type."]
-        if not self.remember.get():
+        lines = [f"{n}:  {s}" for n, s in learned] or ["Nothing yet - it learns as you type."]
+        if not self.settings["remember_words"]:
             lines.append("Forgotten when you close.")
         self.learned_label.configure(text="\n".join(lines))
 
-        sig = [(id(s), n, d, e, st, ok) for s, n, d, e, st, ok, _ in slots]
-        if sig != self.device_sig:
-            self.device_sig = sig
-            self._show_devices(slots)
-
-        msg = []
-        if self.hotkey_error:
-            msg.append(self.hotkey_error)
-        if not slots:
-            msg.append("No per-key keyboards found. Start G HUB / Razer Synapse / OpenRGB "
-                       "(SDK server), plug in the Model 100, then Rescan.")
-        msg += problems
-        self.status.configure(text="\n".join(msg) or
-                              "Green = best guess · yellow = 2nd · red = 3rd. "
-                              "Password fields are skipped automatically.")
-
-    def _show_devices(self, slots):
-        for child in self.dev_list.winfo_children():
-            child.destroy()
-        for slot, name, detail, enabled, status, ok, available in slots:
-            row = ctk.CTkFrame(self.dev_list, fg_color=KEY, corner_radius=10)
-            row.pack(fill="x", pady=3)
-            var = tk.BooleanVar(value=enabled)
-            switch = ctk.CTkSwitch(row, text="", variable=var, width=40, progress_color=ACCENT,
-                                   fg_color=BORDER, button_color=TEXT, bg_color=KEY,
-                                   command=lambda s=slot, v=var: self.engine.set_enabled(
-                                       s, v.get()))
-            switch.pack(side="left", padx=(10, 0), pady=8)
-            if not available:
-                switch.configure(state="disabled", button_color=MUTED)
-            text = ctk.CTkFrame(row, fg_color=KEY)
-            text.pack(side="left", fill="x", expand=True)
-            ctk.CTkLabel(text, text=name, text_color=TEXT, font=(FONT, 13, "bold"),
-                         anchor="w", height=18).pack(fill="x")
-            ctk.CTkLabel(text, text=detail, text_color=MUTED, font=(FONT, 11),
-                         anchor="w", height=16).pack(fill="x")
-            if not available:
-                color, shown = WARN, "needs setup"
-            else:
-                color = GOOD if ok and status == "lit" else (BAD if not ok else IDLE)
-                shown = status if len(status) < 34 else status[:32] + "…"
-            badge = ctk.CTkLabel(row, text=f" {shown} ", text_color=color,
-                                 fg_color=blend(color, KEY, 0.2), corner_radius=8,
-                                 height=22, font=(FONT, 11, "bold"))
-            badge.pack(side="right", padx=10)
-            if not available or (not ok and len(status) >= 34):
-                ctk.CTkLabel(text, text=status, text_color=color, font=(FONT, 11),
-                             anchor="w", justify="left", wraplength=330
-                             ).pack(fill="x", pady=(0, 6))
-        if not slots:
-            ctk.CTkLabel(self.dev_list, text="None found yet", text_color=MUTED,
-                         font=(FONT, 12), anchor="w").pack(fill="x")
-
     # ------------------------------------------------------------- actions
 
-    def rescan(self):
-        threading.Thread(target=self.engine.scan, daemon=True).start()
+    def toggle_private(self):
+        if self.running:
+            self.engine.toggle_private()  # in order with the keys being processed
+        else:
+            with self.engine.lock:
+                self.engine._set_private(not self.engine.private)
+                self.engine.version += 1
 
     def choose_mode(self, label):
         self.engine.set_mode(self.mode_choices[label])
-        save_settings(self.settings)
-
-    def toggle_pause(self):
-        self.engine.set_paused(not self.engine.paused)
 
     def forget(self):
         if not messagebox.askyesno("Forget learned words",
-                                   "Forget everything Predictive Key Lights has learned "
-                                   "from your typing, in every mode?", parent=self.root):
+                                   "Forget everything Hotk33 has learned from your typing, "
+                                   "in every mode?", parent=self.app.root):
             return
         with self.engine.lock:
             self.models.forget()
             self.engine.version += 1
 
     def toggle_remember(self):
-        on = self.remember.get()
+        on = bool(self.remember.get())
         self.settings["remember_words"] = on
-        self.models.learned_path = LEARNED_PATH if on else None
-        if not on and LEARNED_PATH.exists():
-            LEARNED_PATH.unlink()
-        save_settings(self.settings)
+        self.models.learned_path = self.learned_path if on else None
+        if not on and self.learned_path.exists():
+            self.learned_path.unlink()
         self.engine.version += 1
 
     def toggle_show_text(self):
-        self.settings["show_text"] = self.show_text.get()
-        save_settings(self.settings)
+        self.settings["show_text"] = bool(self.show_text.get())
         self.engine.version += 1
 
     def _private_sound(self, on):
-        if self.settings.get("hotkey_sound", True):
-            tones = (660, 990) if on else (990, 660)
-            threading.Thread(target=lambda: [winsound.Beep(f, 70) for f in tones],
-                             daemon=True).start()
+        if not self.settings.get("hotkey_sound", True):
+            return
+        import winsound
+        tones = (660, 990) if on else (990, 660)
+        threading.Thread(target=lambda: [winsound.Beep(f, 70) for f in tones],
+                         daemon=True).start()
 
     def _save_learned(self):
         with self.engine.lock:
@@ -479,34 +364,5 @@ class App:
             except OSError:
                 pass
 
-    def quit(self):
-        self.hook.stop()
-        self.engine.stop()
-        self._save_learned()
-        save_settings(self.settings)
-        self.root.destroy()
-
-
-def single_instance():
-    kernel32 = ctypes.windll.kernel32
-    kernel32.CreateMutexW(None, False, "Local\\PredictiveKeyLights")
-    return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
-
-
-def main():
-    if not single_instance():
-        ctypes.windll.user32.MessageBoxW(None, "Predictive Key Lights is already running.",
-                                         "Predictive Key Lights", 0x40)
-        return
-    ctk.set_appearance_mode("dark")
-    root = ctk.CTk()
-    App(root)
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    main()
-    # Everything is saved and released by now. Skip interpreter shutdown: unloading
-    # the G HUB SDK DLL can deadlock there and leave the process hanging.
-    sys.stdout.flush()
-    os._exit(0)
+    def close(self):
+        self.stop()

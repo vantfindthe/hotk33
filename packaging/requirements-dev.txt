@@ -1,1 +1,3 @@
 pyinstaller
+# only for rebuilding app/predictive/words_en.txt (tools/build_wordlist.py)
+wordfreq

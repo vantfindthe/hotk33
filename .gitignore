@@ -3,9 +3,11 @@ __pycache__/
 *.pyc
 .venv/
 
-# Local app state
-app/settings.json
-app/icon.ico
+# Local app state (it lives in %APPDATA%\Hotk33, but just in case)
+settings.json
+learned.json
+icon.ico
+*.tmp
 
 # Build output
 build/

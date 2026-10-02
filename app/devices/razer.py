@@ -4,7 +4,8 @@ Needs Razer Synapse with the Chroma SDK / Chroma Connect module (the REST
 server listens on localhost:54235). The SDK can't list connected devices, so
 every device category is offered; categories with no hardware do nothing.
 Chroma Link covers Chroma-enabled third-party gear such as Razer's ARGB
-controller.
+controller. The keyboard is offered to Typing mode only when a Razer keyboard
+is actually connected (Synapse often runs just for a mouse or headset).
 """
 
 import http.client
@@ -16,6 +17,7 @@ from urllib.parse import urlparse
 import numpy as np
 
 import layout
+from . import hardware
 from .base import Output, OutputError
 
 SDK_HOST, SDK_PORT = "localhost", 54235
@@ -32,12 +34,24 @@ CATEGORIES = {
 }
 
 APP_INFO = {
-    "title": "Model 100 Music Visualizer",
-    "description": "Makes your lighting react to music",
-    "author": {"name": "Music Visualizer", "contact": "localhost"},
+    "title": "Hotk33",
+    "description": "Makes your lighting react to music, or shows the keys you'll type next",
+    "author": {"name": "Hotk33", "contact": "localhost"},
     "device_supported": list(CATEGORIES),
     "category": "application",
 }
+
+
+def _keyboard_keymap():
+    """Key id -> index in the Chroma 6 x 22 keyboard grid (row-major)."""
+    rows, cols = CATEGORIES["keyboard"][2]
+    pos = {"`": (1, 1), "-": (1, 12), "=": (1, 13), "[": (2, 12), "]": (2, 13), "\\": (2, 14),
+           ";": (3, 11), "'": (3, 12), ",": (4, 10), ".": (4, 11), "/": (4, 12),
+           "space": (5, 7), "enter": (3, 14)}
+    for row, start, chars in ((1, 2, "1234567890"), (2, 2, "qwertyuiop"),
+                              (3, 2, "asdfghjkl"), (4, 3, "zxcvbnm")):
+        pos.update({ch: (row, start + i) for i, ch in enumerate(chars)})
+    return {k: [r * cols + c] for k, (r, c) in pos.items()}
 
 
 def _request(conn, method, path, body=None):
@@ -113,11 +127,15 @@ class _Session:
 
 
 class RazerDevice(Output):
-    def __init__(self, category):
+    def __init__(self, category, product="", per_key=False):
         name, self.effect, shape = CATEGORIES[category]
         self.category = category
         self.id = f"razer:{category}"
         self.name = name
+        if product:
+            self.name = product if product.lower().startswith("razer") else f"Razer {product}"
+        if per_key:
+            self.keymap = _keyboard_keymap()
         if isinstance(shape, tuple):
             self.rows, self.cols = shape
             self.layout = layout.grid(self.cols, self.rows)
@@ -150,4 +168,7 @@ def scan():
         conn.close()
     except (OSError, ValueError, http.client.HTTPException):
         return []
-    return [RazerDevice(c) for c in CATEGORIES]
+    keyboards = [d["product"] for d in hardware.detect() if d["brand"] == "Razer"]
+    product = keyboards[0] if len(keyboards) == 1 else ""
+    return [RazerDevice(c, product, per_key=bool(keyboards)) if c == "keyboard" else RazerDevice(c)
+            for c in CATEGORIES]

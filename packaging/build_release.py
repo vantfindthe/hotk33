@@ -1,14 +1,15 @@
 """Builds the release assets into dist/:
 
-  MusicVisualizer-<version>-windows-x64.zip   standalone app (no Python needed)
-  Model100-MusicLEDs-<version>.bin            Keyboardio Model 100 firmware
+  Hotk33-<version>-windows-x64.zip       standalone app (no Python needed)
+  Model100-MusicLEDs-<version>.bin       Keyboardio Model 100 firmware
 
-Run with the app's virtualenv:  app\.venv\Scripts\python.exe packaging\build_release.py
+Run with the app's virtualenv:  .venv\Scripts\python.exe packaging\build_release.py
 Needs PyInstaller (packaging/requirements-dev.txt). The firmware is rebuilt
 when arduino-cli with the keyboardio:gd32 core is available, otherwise the
 existing firmware/build/Model100.ino.bin is used.
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -31,17 +32,21 @@ def build_app():
     WORK.mkdir(exist_ok=True)
     icon = WORK / "icon.ico"
     app_icon().save(icon, sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+    typing_data = APP / "predictive"
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed",
-        "--name", "MusicVisualizer", "--icon", str(icon),
+        "--name", "Hotk33", "--icon", str(icon),
         "--paths", str(APP), "--collect-data", "customtkinter",
+        "--collect-submodules", "comtypes",  # UI Automation, for password-field detection
+        "--add-data", f"{typing_data / 'words_en.txt'}{os.pathsep}predictive",
+        "--add-data", f"{typing_data / 'modes'}{os.pathsep}predictive/modes",
         "--distpath", str(WORK / "pyinstaller-dist"), "--workpath", str(WORK / "pyinstaller"),
         "--specpath", str(WORK), str(APP / "app.py"),
     ], check=True)
-    folder = WORK / "pyinstaller-dist" / "MusicVisualizer"
+    folder = WORK / "pyinstaller-dist" / "Hotk33"
     shutil.copy(ROOT / "README.md", folder / "README.md")
     shutil.copy(ROOT / "LICENSE", folder / "LICENSE.txt")
-    zip_base = DIST / f"MusicVisualizer-{__version__}-windows-x64"
+    zip_base = DIST / f"Hotk33-{__version__}-windows-x64"
     return Path(shutil.make_archive(str(zip_base), "zip", folder.parent, folder.name))
 
 

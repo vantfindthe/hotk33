@@ -5,7 +5,7 @@ plugged in but no backend can drive it yet (vendor app not running, Bluetooth
 connection, ...).
 """
 
-from .base import Keyboard
+from .base import Output
 
 BRANDS = {
     0x046D: "Logitech", 0x1532: "Razer", 0x3434: "Keychron", 0x1038: "SteelSeries",
@@ -23,8 +23,7 @@ SETUP_HINTS = {
     "Corsair": "Start OpenRGB with its SDK Server (close iCUE)",
     "HyperX": "Start OpenRGB with its SDK Server (close NGENUITY)",
     "ASUS": "Start OpenRGB with its SDK Server (close Armoury Crate)",
-    "Keyboardio": "Flash the MusicLEDs firmware (github.com/vantfindthe/rgb-music-visualizer) "
-                  "and close Chrysalis",
+    "Keyboardio": "Flash the MusicLEDs firmware that comes with Hotk33 and close Chrysalis",
 }
 BLUETOOTH_HINT = "Connected wirelessly - per-key lighting from a PC needs the USB cable"
 
@@ -57,28 +56,40 @@ def product_name(brand):
     return names[0] if len(names) == 1 else ""
 
 
-class SetupHint(Keyboard):
-    """A connected keyboard that can't be lit yet; shown with what to do."""
+class SetupHint(Output):
+    """A connected keyboard that can't be lit yet; shown with what to do.
+
+    in_music  also list it in Music mode (nothing at all drives this brand;
+              in Typing mode it's listed whenever no per-key driver does)"""
 
     available = False
 
-    def __init__(self, brand, product, hint):
+    def __init__(self, brand, product, hint, in_music):
         self.id = f"hint:{brand}:{product}"
         self.name = product if product.lower().startswith(brand.lower()) else f"{brand} {product}"
         self.detail = "detected - not lit yet"
         self.hint = hint
+        self.in_music = in_music
 
     def send(self, rgb):
         pass
 
 
+def _covered(outputs):
+    return " ".join(f"{o.name} {o.id}" for o in outputs).lower()
+
+
 def hints(outputs):
-    """SetupHints for connected keyboards whose brand no output covers."""
-    covered = " ".join(f"{o.name} {o.id}" for o in outputs).lower()
+    """SetupHints for connected keyboards whose brand no per-key keyboard output
+    covers. (A Keychron driven as a whole board over VIA still gets one: Typing
+    mode needs per-key lighting.)"""
+    per_key = _covered(o for o in outputs if o.keymap)
+    anything = _covered(outputs)
     out = []
     for d in detect():
-        if d["brand"].lower() in covered:
+        brand = d["brand"].lower()
+        if brand in per_key:
             continue
         hint = BLUETOOTH_HINT if d["bluetooth"] else SETUP_HINTS.get(d["brand"], "")
-        out.append(SetupHint(d["brand"], d["product"], hint))
+        out.append(SetupHint(d["brand"], d["product"], hint, in_music=brand not in anything))
     return out

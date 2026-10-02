@@ -16,6 +16,16 @@ ROWS = [
 ]
 TYPING_KEYS = [k for row in ROWS for k in row] + ["space", "enter"]
 
+# Where each typing key sits on a US keyboard, in key units (1 = a key plus
+# the gap to the next one): key id -> (x, y, w, h).
+ROW_OFFSETS = [0, 0.6, 0.85, 1.3]
+WIDTH = 14.55
+POSITIONS = {key: (ROW_OFFSETS[r] + c, r, 1, 1) for r, row in enumerate(ROWS)
+             for c, key in enumerate(row)}
+POSITIONS["space"] = (3.3, 4, 6.2, 1)
+POSITIONS["enter"] = (ROW_OFFSETS[2] + len(ROWS[2]), 2,
+                      WIDTH - ROW_OFFSETS[2] - len(ROWS[2]), 1)
+
 
 def char_key(ch):
     """The key that types `ch` (with or without Shift), or None."""

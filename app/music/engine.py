@@ -6,9 +6,8 @@ import time
 
 import numpy as np
 
-import audio
-import effects
 from devices import OutputError
+from . import audio, effects
 
 CUSTOM = "Custom"
 # Longer than the gap between songs: handing lighting back and taking it over

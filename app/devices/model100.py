@@ -1,6 +1,9 @@
 """Keyboardio Model 100, over Kaleidoscope's Focus serial protocol.
 
 Needs the MusicLEDs firmware plugin (firmware/Model100/MusicLEDs.h).
+Frames are 64 keys in matrix order: 4 rows x 16 columns, left hand columns
+0-7, right hand 8-15. The keymap (for Typing mode) assumes the default QWERTY
+layer.
 """
 
 import serial
@@ -11,6 +14,16 @@ from .base import Output, OutputError
 
 KEYBOARDIO_VID = 0x3496
 MODEL_100_PID = 0x0006
+
+# key id -> (row, col) in the firmware matrix
+_MATRIX = {"`": (1, 0), "space": (1, 8), "enter": (1, 9), "=": (1, 15), "'": (2, 15),
+           "-": (3, 15)}
+for _row, _cols, _chars in (
+        (0, range(1, 6), "12345"), (0, range(10, 15), "67890"),
+        (1, range(1, 6), "qwert"), (1, range(10, 15), "yuiop"),
+        (2, range(1, 6), "asdfg"), (2, range(10, 15), "hjkl;"),
+        (3, range(1, 6), "zxcvb"), (3, range(10, 15), "nm,./")):
+    _MATRIX.update({ch: (_row, c) for ch, c in zip(_chars, _cols)})
 
 
 class Focus:
@@ -35,6 +48,7 @@ class Focus:
 
 class Model100(Output):
     power_budget = 64 * 255  # every key at one full channel - keeps USB draw sane
+    keepalive = 0.5  # the firmware gives the LEDs back after 1.5 s without a frame
 
     def __init__(self, port):
         self.port = port
@@ -42,6 +56,7 @@ class Model100(Output):
         self.name = "Keyboardio Model 100"
         self.detail = f"USB serial · {port}"
         self.layout = layout.model100()
+        self.keymap = {k: [r * 16 + c] for k, (r, c) in _MATRIX.items()}
         self.focus = None
 
     def open(self):
@@ -54,7 +69,8 @@ class Model100(Output):
                                   "firmware (see README).")
         except (OSError, serial.SerialException, TimeoutError) as e:
             self.focus = None
-            raise OutputError(f"Can't open {self.port} - is Chrysalis open? ({e})") from e
+            raise OutputError(f"Can't open {self.port} - is Chrysalis (or another lighting "
+                              f"app) open? ({e})") from e
 
     def send(self, rgb):
         try:

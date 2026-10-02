@@ -9,7 +9,7 @@ import ctypes
 import re
 from ctypes import wintypes
 
-from predict import ENGLISH
+from .predict import ENGLISH
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)

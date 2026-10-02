@@ -28,6 +28,17 @@ BITMAP_W, BITMAP_H = 21, 6
 WHITE_ONLY = ("G610", "G710")
 
 
+def _bitmap_index():
+    """Key id -> index in the SDK's 21 x 6 key bitmap (row-major)."""
+    idx = {"`": 21, "-": 32, "=": 33, "[": 53, "]": 54, "\\": 55, ";": 73, "'": 74,
+           ",": 93, ".": 94, "/": 95, "space": 110, "enter": 76}
+    idx.update({k: 22 + i for i, k in enumerate("1234567890")})
+    idx.update({k: 43 + i for i, k in enumerate("qwertyuiop")})
+    idx.update({k: 64 + i for i, k in enumerate("asdfghjkl")})
+    idx.update({k: 86 + i for i, k in enumerate("zxcvbnm")})
+    return {k: [i] for k, i in idx.items()}
+
+
 def _dll_path():
     try:
         with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, SDK_CLSID) as key:
@@ -63,7 +74,7 @@ class _Sdk:
     def acquire(cls):
         dll = cls.load()
         with cls.lock:
-            if cls.users == 0 and not dll.LogiLedInitWithName(b"Music Visualizer"):
+            if cls.users == 0 and not dll.LogiLedInitWithName(b"Hotk33"):
                 raise OutputError("Couldn't connect to G HUB - is it running?")
             cls.users += 1
 
@@ -101,6 +112,8 @@ class LogitechKeyboard(_LogitechOutput):
     """Per-key keyboards, drawn as the SDK's 21 x 6 key bitmap. White-only
     keyboards get each key's brightness from its color."""
 
+    keepalive = 2.0
+
     def __init__(self, product):
         super().__init__()
         self.id = "logitech:keyboard"
@@ -109,6 +122,7 @@ class LogitechKeyboard(_LogitechOutput):
         kind = "per-key white" if self.white_only else "per-key"
         self.detail = f"G HUB SDK · {kind} · needs G HUB running"
         self.layout = layout.grid(BITMAP_W, BITMAP_H)
+        self.keymap = _bitmap_index()
         self._bitmap = (ctypes.c_ubyte * (BITMAP_W * BITMAP_H * 4))()
 
     def _draw(self, dll, rgb):

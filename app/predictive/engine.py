@@ -1,19 +1,21 @@
 """Turns keystrokes into predictions and predictions into key lights.
 
-The hook thread feeds key presses in; a sender thread pushes frames to every
-enabled keyboard (immediately when the lit keys change, and periodically as a
-keep-alive, since some keyboards fall back to their own lighting otherwise).
+The hook thread feeds key presses in; while Typing mode is on, a sender thread
+pushes frames to every enabled keyboard (immediately when the lit keys change,
+and periodically as a keep-alive, since some keyboards fall back to their own
+lighting otherwise).
 """
 
 import queue
 import threading
 import time
 
-import devices
+import numpy as np
+
 import keys
-from devices import DeviceError
-from predict import ENGLISH, WORD_CHARS
-from secure import PasswordDetector
+from devices import OutputError
+from .predict import ENGLISH, WORD_CHARS
+from .secure import PasswordDetector
 
 VK_BACK, VK_TAB, VK_RETURN, VK_ESCAPE = 0x08, 0x09, 0x0D, 0x1B
 # Keys that move the caret or change text in ways we can't follow.
@@ -25,13 +27,14 @@ RETRY_S = 5.0
 
 
 class DeviceSlot:
-    """A keyboard plus what the UI shows about it."""
+    """A keyboard plus what the UI shows about it. status: "ready", "lit",
+    "idle", "off" or an error message (then ok is False)."""
 
     def __init__(self, kb, enabled):
         self.kb = kb
         self.enabled = enabled
         self.opened = False
-        self.status = "ready"
+        self.status = "ready" if enabled else "off"
         self.ok = True
         self.last_sent = 0.0
         self.sent_frame = None
@@ -45,7 +48,7 @@ class Engine:
         self.settings = settings
         self.text = ""
         self.window = None
-        self.mode = ENGLISH if self.auto else settings.get("mode", ENGLISH)
+        self.mode = ENGLISH if self.auto else settings.get("typing_mode", ENGLISH)
         self.mode_reason = ""
         self.secret = False      # typing in a password field: nothing recorded, keys dark
         self.private = False     # same, switched on by hand (hotkey) for prompts we can't detect
@@ -53,64 +56,65 @@ class Engine:
         self.on_private = None   # callback(bool) when private mode changes (e.g. a sound)
         self.predictions = []
         self.lit = {}            # key id -> rank (0 best)
-        self.paused = False
         self.idle = False
         self.last_key = time.monotonic()
         self.version = 0         # bumped whenever something the UI shows changes
         self.slots = []
-        self.problems = []
         self.lock = threading.RLock()
         self._events = queue.SimpleQueue()
         self._wake = threading.Event()
-        self._stop = False
+        self._stop = True
+        self._thread = None
         self._predict()
 
     # ------------------------------------------------------------- devices
 
-    def scan(self):
-        found, problems = devices.scan_all()
-        disabled = set(self.settings.get("disabled_devices", []))
+    def set_outputs(self, outputs, disabled):
+        """The keyboards to light (Output.typing), replacing the previous ones."""
         with self.lock:
             for slot in self.slots:
                 self._close(slot)
-            self.slots = [DeviceSlot(kb, kb.id not in disabled) for kb in found]
+            self.slots = [DeviceSlot(o, o.id not in disabled) for o in outputs if o.typing]
+            self.version += 1
+        self._wake.set()
+
+    def set_enabled(self, output_id, enabled):
+        with self.lock:
             for slot in self.slots:
-                if not slot.kb.available:
-                    slot.status, slot.ok = slot.kb.hint, True
-            self.problems = problems
+                if slot.kb.id != output_id:
+                    continue
+                slot.enabled = enabled
+                if not enabled:
+                    self._close(slot)
+                    slot.status, slot.ok = "off", True
+                elif slot.status == "off":
+                    slot.status = "ready"
             self.version += 1
         self._wake.set()
 
-    def set_enabled(self, slot, enabled):
-        with self.lock:
-            slot.enabled = enabled
-            if not enabled:
-                self._close(slot)
-                slot.status, slot.ok = "off", True
-            disabled = {s.kb.id for s in self.slots if not s.enabled}
-            self.settings["disabled_devices"] = sorted(disabled)
-            self.version += 1
-        self._wake.set()
+    @property
+    def running(self):
+        return not self._stop
 
-    def set_paused(self, paused):
-        with self.lock:
-            self.paused = paused
-            if paused:
-                for slot in self.slots:
-                    self._release(slot)
-            self.version += 1
-        self._wake.set()
+    def start(self):
+        """Starts lighting the keyboards. Key presses come in through on_key()."""
+        if self._thread and self._thread.is_alive():
+            return
+        self._events = queue.SimpleQueue()  # nothing typed while stopped carries over
+        self._stop = False
+        self._thread = threading.Thread(target=self.run, name="typing-sender", daemon=True)
+        self._thread.start()
 
     # ---------------------------------------------------------------- modes
 
     @property
     def auto(self):
-        return self.settings.get("mode", AUTO) == AUTO
+        return self.settings.get("typing_mode", AUTO) == AUTO
 
     def set_mode(self, mode):
         """mode: a mode id, or AUTO to follow the window being typed in."""
         with self.lock:
-            self.settings["mode"] = mode
+            self.settings["typing_mode"] = mode
             if mode != AUTO:
                 self._switch(mode, "chosen")
             elif self.window:
@@ -216,19 +220,21 @@ class Engine:
     # -------------------------------------------------------------- frames
 
     def frame_for(self, kb):
-        colors = self.settings["colors"]
+        colors = self.settings["key_colors"]
         if kb.white_only:
             colors = [(v, v, v) for v in self.settings["white_levels"]]
-        frame = [(0, 0, 0)] * kb.n
+        n = kb.layout.n
+        frame = np.zeros((n, 3), dtype=np.uint8)
         for key, rank in self.lit.items():
             for i in kb.keymap.get(key, ()):
-                if i < kb.n:
-                    frame[i] = tuple(colors[rank])
+                if i < n:
+                    frame[i] = colors[rank]
         return frame
 
     def run(self):
         """Sender thread: processes keystrokes and keeps every keyboard lit."""
         self.secure = PasswordDetector()
+        self.last_key = time.monotonic()
         while not self._stop:
             idle_s = self.settings.get("idle_release_s", 0)
             self._wake.wait(0.25)
@@ -254,7 +260,7 @@ class Engine:
                     for slot in self.slots:
                         self._release(slot)
                     self.version += 1
-                slots = list(self.slots) if not (self.paused or self.idle) else []
+                slots = list(self.slots) if not self.idle else []
             for slot in slots:
                 self._service(slot)
 
@@ -266,7 +272,8 @@ class Engine:
             if not slot.ok and now - slot.failed_at < RETRY_S:
                 return
             frame = self.frame_for(slot.kb)
-            due = frame != slot.sent_frame or now - slot.last_sent >= slot.kb.keepalive
+            due = (slot.sent_frame is None or not np.array_equal(frame, slot.sent_frame)
+                   or now - slot.last_sent >= slot.kb.keepalive)
             if not due:
                 return
             try:
@@ -278,7 +285,7 @@ class Engine:
                 if not slot.ok or slot.status != "lit":
                     slot.status, slot.ok = "lit", True
                     self.version += 1
-            except DeviceError as e:
+            except OutputError as e:
                 self._close(slot)
                 slot.status, slot.ok, slot.failed_at = str(e), False, now
                 self.version += 1
@@ -286,11 +293,11 @@ class Engine:
     def _release(self, slot):
         try:
             slot.kb.release()
-        except DeviceError:
+        except OutputError:
             pass
         slot.sent_frame = None
         if slot.ok and slot.enabled:
-            slot.status = "paused" if self.paused else "idle"
+            slot.status = "idle"
 
     def _close(self, slot):
         if slot.opened or slot.sent_frame is not None:
@@ -299,8 +306,18 @@ class Engine:
         slot.sent_frame = None
 
     def stop(self):
+        """Stops lighting: every keyboard gets its own lighting back."""
         self._stop = True
         self._wake.set()
+        if self._thread:
+            self._thread.join(timeout=3)
+            self._thread = None
         with self.lock:
+            self.text = ""
+            self.secret = self.idle = False
+            self._predict()
             for slot in self.slots:
                 self._close(slot)
+                if slot.enabled and slot.ok:
+                    slot.status = "ready"
+            self.version += 1

@@ -11,6 +11,8 @@ A Layout describes one device's LEDs, in the order the device expects them:
 
 import numpy as np
 
+import keys
+
 
 class Layout:
     def __init__(self, rects, xs, ys, linear, round_leds=False, left=None):
@@ -94,6 +96,16 @@ def model100():
     for (r, c), (x, y, w, h) in left.items():
         rects[r * 16 + c] = (x, y, w, h)
         rects[r * 16 + (15 - c)] = (width - x - w, y, w, h)
+    xs = [(x + w / 2) / width for x, y, w, h in rects]
+    ys = [(y + h / 2) / height for x, y, w, h in rects]
+    return Layout(rects, xs, ys, linear=False)
+
+
+def typing_keys(order):
+    """The typing keys `order` (key ids, see keys.py) where they sit on a US
+    keyboard, for devices that only expose those keys."""
+    rects = [keys.POSITIONS[k] for k in order]
+    width, height = keys.WIDTH, 5
     xs = [(x + w / 2) / width for x, y, w, h in rects]
     ys = [(y + h / 2) / height for x, y, w, h in rects]
     return Layout(rects, xs, ys, linear=False)

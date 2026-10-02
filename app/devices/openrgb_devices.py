@@ -3,6 +3,8 @@ controllers (Corsair, NZXT, Lian Li, ...), RAM, GPUs, and many keyboards and
 mice (Razer, Logitech, Keychron with OpenRGB-protocol QMK firmware, ...).
 
 Needs OpenRGB running with its SDK server enabled (default port 6742).
+Keyboards' typing keys (for Typing mode) are found by OpenRGB's LED names
+("Key: A", "Key: Space", ...).
 """
 
 import math
@@ -16,6 +18,32 @@ from .base import Output, OutputError
 
 HOST, PORT = "127.0.0.1", 6742
 STRIP_WRAP = 36  # LEDs per row in the preview
+_NAMED = {"space": "space", "spacebar": "space", "enter": "enter", "return": "enter",
+          "grave": "`", "minus": "-", "equals": "=",
+          "semicolon": ";", "quote": "'", "apostrophe": "'", "comma": ",", "period": ".",
+          "slash": "/", "forward slash": "/", "backslash": "\\", "left bracket": "[",
+          "right bracket": "]"}
+
+
+def _key_id(led_name):
+    if not led_name.startswith("Key: "):
+        return None
+    name = led_name[5:].strip()
+    if name.startswith("\\"):  # "\ (ANSI)" / "\ (ISO)"
+        return "\\"
+    if len(name) == 1:
+        return name.lower()
+    return _NAMED.get(name.lower())
+
+
+def build_keymap(dev):
+    """Key id -> LED indices, if the device has (at least) the letter keys."""
+    keymap = {}
+    for led in dev.leds:
+        key = _key_id(led.name)
+        if key:
+            keymap.setdefault(key, []).append(led.id)
+    return keymap if len(keymap) >= 26 else {}
 
 
 class _Client:
@@ -29,7 +57,7 @@ class _Client:
     def get(cls):
         if cls.client is None:
             try:
-                cls.client = OpenRGBClient(HOST, PORT, name="Music Visualizer")
+                cls.client = OpenRGBClient(HOST, PORT, name="Hotk33")
             except (OSError, TimeoutError) as e:
                 raise OutputError(f"Can't reach OpenRGB on port {PORT} - is it running with "
                                   f"the SDK server enabled? ({e})") from e
@@ -103,6 +131,8 @@ class OpenRGBDevice(Output):
         self.detail = (f"OpenRGB · {kind} · {len(dev.leds)} LEDs"
                        + (f" in {zones} zones" if zones > 1 else ""))
         self.layout = build_layout(dev)
+        self.keymap = build_keymap(dev)
+        self.keepalive = 2.0
         self.saved_mode = None
 
     def _find(self, client):
