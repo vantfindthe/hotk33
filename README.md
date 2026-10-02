@@ -26,7 +26,7 @@ Predictive Key Lights learned). Close the old apps before running Hotk33.
 Needs Windows 10/11 and [Python 3.12](https://www.python.org/downloads/).
 
 ```bat
-git clone https://github.com/vantfindthe/rgb-music-visualizer Hotk33
+git clone https://github.com/vantfindthe/Hotk33
 cd Hotk33
 setup.bat
 ```
