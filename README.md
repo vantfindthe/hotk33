@@ -1,6 +1,6 @@
 # Hotk33
 
-One app for your RGB keyboard, mouse and ARGB lighting on Windows, with three modes:
+One app for your RGB keyboard, mouse and ARGB lighting on Windows, with four modes:
 
 - **Music**: your lighting reacts to whatever is playing: spectrum bars, beat
   pulses, ripples and VU meters, with a per-band sensitivity equalizer. Works
@@ -14,6 +14,9 @@ One app for your RGB keyboard, mouse and ARGB lighting on Windows, with three mo
   pressing the keys themselves. Each key gets a color, an animation, an
   intensity, and can react to being pressed (a heatmap), to every keystroke or
   to audio. Save what you paint as layouts.
+- **Styles**: ready-made lighting styles, like the effects in Keychron's
+  Launcher (rainbow waves, breathing, raindrops, typing heatmap, splashes...),
+  and the layouts you saved in Paint mode, one click each.
 
 Pick the mode at the top of the window and press **Start**. One mode runs at a
 time (they would fight over the same keys); switching modes while running
@@ -46,7 +49,7 @@ see [Building](#building-from-source).
 
 Devices are found automatically (**Scan** checks again). Switch each one on or
 off in the device list; in Music mode, click a device to preview it, and in
-Paint mode to paint it. Typing
+Paint and Styles mode to paint or preview it. Typing
 mode lists only keyboards that can light single keys. A keyboard that's
 plugged in but can't be lit yet is listed too, marked with what it needs (for
 example, start Synapse, or connect the Keychron with a cable).
@@ -139,6 +142,27 @@ while Paint mode runs and something painted reacts to them (heatmap or
 keystrokes), and only which key was pressed. In password fields keys don't
 heat up or ripple from where you typed.
 
+## Styles mode
+
+![Styles mode](docs/styles.png)
+
+Click a style and press **Start**; every device shows it. Click another to
+switch while it runs. **Color** sets the color of the styles that use one,
+**Speed** and **Brightness** apply to all.
+
+| Styles | |
+|---|---|
+| Solid, Breathing | one color, steady or fading in and out |
+| Cycle all, Cycle left-right, Cycle up-down, Cycle out-in, Rainbow chevron, Pinwheel, Spiral | rainbows moving across, down, inward, as a chevron, or turning around the center |
+| Gradient left-right, Gradient up-down | a still gradient starting from the color |
+| Jellybean raindrops, Pixel rain, Starlight | keys fading in and out at random |
+| Digital rain | green code raining down |
+| Typing heatmap, Reactive, Splash, Multisplash | react to typing: keys heat up, light up when pressed, or send rings of color out from the key pressed |
+
+**My layouts** lists the layouts you saved in Paint mode. Reactive styles
+read which keys you press, anywhere in Windows, only while they run; password
+fields are handled as in Paint mode.
+
 ## Typing mode
 
 ![Typing mode: after "over th", E is green, A yellow, I red](docs/english.png)
@@ -164,8 +188,8 @@ Type `t` and **H** lights up (then **O**, **R**). Type `th` and you get **E**,
 drop-down to fix it. In code and terminal modes **Enter** can light up too,
 and pressing it carries the context to the next line.
 
-Keystrokes are only read while Typing mode is running (and in Paint mode, see
-above). In Music mode, or when stopped, Hotk33 doesn't watch the keyboard at all.
+Keystrokes are only read while Typing mode is running (and in Paint and Styles
+mode, see above). In Music mode, or when stopped, Hotk33 doesn't watch the keyboard at all.
 
 ### It learns how you type
 
@@ -256,7 +280,14 @@ Restart Hotk33 after rebuilding.
 
 After `setup.bat`, run from source with `Hotk33.bat`.
 
-Release build (standalone app zip + firmware .bin into `dist\`):
+**Releases are built automatically**: publishing a release on GitHub runs
+the *Build release* workflow (`.github/workflows/release.yml`), which builds
+the standalone app on Windows, checks it starts (`Hotk33.exe --self-test`),
+builds the Model 100 firmware, and attaches both to the release. The version
+in `app/version.py` must match the release tag (`2.1.0` for `v2.1.0`). It can
+also be run by hand from the Actions tab, to just build the files.
+
+To build them yourself (standalone app zip + firmware .bin into `dist\`):
 
 ```bat
 .venv\Scripts\pip install -r packaging\requirements-dev.txt
@@ -281,6 +312,7 @@ Screenshots: `.venv\Scripts\python tools\screenshots.py` renders the ones in
 | `app/layout.py`, `app/keys.py` | where each device's LEDs are; which key types which character |
 | `app/music/` | Music mode: WASAPI capture (speakers or microphone) and FFT bands (`audio`, `audiopicker`), effects, the render loop with one sender thread per device (`engine`), its part of the window (`page`) |
 | `app/paint/` | Paint mode: patterns, brushes and animations (`pattern`), the render loop (`engine`), saved layouts (`store`), the paintable preview (`canvas`), its part of the window (`page`) |
+| `app/styles/` | Styles mode: the style catalog (`catalog`), its render loops built on Paint's (`engine`), its part of the window (`page`) |
 | `app/predictive/` | Typing mode: keystrokes -> predictions -> frames (`engine`), the keyboard hook (`hook`), prediction models (`predict`, `modes/`, `words_en.txt`), Auto mode (`modes.py`), password-field detection (`secure`), its part of the window (`page`) |
 | `firmware/Model100/` | Model 100 sketch + `MusicLEDs.h` plugin |
 | `tools/` | trains the Typing models (`build_modes.py`, `seeds/`), regenerates the word list, renders the screenshots |

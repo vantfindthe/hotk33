@@ -16,6 +16,7 @@ from devices import scan_all
 from music import page as music_page
 from paint import page as paint_page
 from predictive import page as typing_page
+from styles import page as styles_page
 from version import __version__
 from widgets import (ACCENT, ACCENT_HOVER, BAD, BG, CARD, CARD_BORDER, FAINT, FIELD, FIELD_HOVER,
                      FONT, FONT_DISPLAY, MUTED, TEXT, TRACK, WARN, app_icon, blend)
@@ -27,10 +28,11 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 LEARNED_FILE = DATA_DIR / "learned.json"
 LAYOUTS_FILE = DATA_DIR / "paint_layouts.json"
 ICON_FILE = DATA_DIR / "icon.ico"
-MUSIC, TYPING, PAINT = "Music", "Typing", "Paint"
+MUSIC, TYPING, PAINT, STYLES = "Music", "Typing", "Paint", "Styles"
 TAGLINES = {MUSIC: "Lighting that reacts to your music",
             TYPING: "Lights up the keys you'll type next",
-            PAINT: "Paint your own lighting, key by key"}
+            PAINT: "Paint your own lighting, key by key",
+            STYLES: "Ready-made lighting styles, and your own"}
 DEFAULTS = {
     "page": MUSIC,
     "running": False,         # was lighting when the app was closed: start again
@@ -39,6 +41,7 @@ DEFAULTS = {
     **music_page.DEFAULTS,
     **typing_page.DEFAULTS,
     **paint_page.DEFAULTS,
+    **styles_page.DEFAULTS,
 }
 
 # Settings of the two apps Hotk33 replaces, imported on first start.
@@ -85,10 +88,11 @@ def load_settings():
     if "custom_color" in saved and "custom_colors" not in saved:  # one color before 2.0
         saved["custom_colors"] = [saved["custom_color"]]
     settings.update({k: v for k, v in saved.items() if k in DEFAULTS})
-    if settings["page"] not in (MUSIC, TYPING, PAINT):
+    if settings["page"] not in (MUSIC, TYPING, PAINT, STYLES):
         settings["page"] = MUSIC
     music_page.check_settings(settings)
     paint_page.check_settings(settings)
+    styles_page.check_settings(settings)
     return settings
 
 
@@ -141,6 +145,8 @@ class App:
             TYPING: typing_page.TypingPage(self, stage, bottom, footer, LEARNED_FILE, live),
             PAINT: paint_page.PaintPage(self, stage, bottom, footer, LAYOUTS_FILE),
         }
+        self.pages[STYLES] = styles_page.StylesPage(self, stage, bottom, footer,
+                                                    self.pages[PAINT].store)
         self.page = self.pages[self.settings["page"]]
         self.mode_btn.set(self.page.name)
         self._show_page()
@@ -200,8 +206,8 @@ class App:
         self.tagline.grid(row=1, column=1, sticky="nw")
 
         self.mode_btn = ctk.CTkSegmentedButton(
-            hdr, values=[MUSIC, TYPING, PAINT], command=self.switch_page,
-            font=self.fonts["bold"], width=300, height=36, corner_radius=10, fg_color=FIELD,
+            hdr, values=[MUSIC, TYPING, PAINT, STYLES], command=self.switch_page,
+            font=self.fonts["bold"], width=380, height=36, corner_radius=10, fg_color=FIELD,
             selected_color=ACCENT, selected_hover_color=ACCENT_HOVER, unselected_color=FIELD,
             unselected_hover_color=FIELD_HOVER, text_color=TEXT)
         self.mode_btn.grid(row=0, column=2, rowspan=2, padx=20)
@@ -402,6 +408,7 @@ class App:
             r["frame"].configure(fg_color=FIELD if on else "transparent")
         self.pages[MUSIC].select(out)
         self.pages[PAINT].select(out)
+        self.pages[STYLES].select(out)
 
     def _on_toggle_device(self, out, on):
         disabled = self.settings["disabled_devices"]
@@ -458,7 +465,35 @@ def single_instance():
     return kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
 
 
+def self_test():
+    """Checks that this copy of Hotk33 (e.g. a release build) has everything it
+    needs: every Typing model loads and the window builds. Lights nothing, reads
+    no keys. Returns the process exit code."""
+    from predictive.predict import Models
+    try:
+        models = Models(Path(typing_page.__file__).resolve().parent)
+        for mode in models.index:
+            models.get(mode).predict("the ")
+        if len(models.index) < 2:
+            raise RuntimeError("the coding / terminal models are missing")
+        ctk.set_appearance_mode("dark")
+        root = ctk.CTk()
+        app = App(root, live=False)
+        for name in app.pages:
+            app.switch_page(name)
+            root.update()
+        root.destroy()
+    except Exception:  # noqa: BLE001 - any failure fails the test
+        import traceback
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        (DATA_DIR / "self-test.log").write_text(traceback.format_exc(), encoding="utf-8")
+        return 1
+    return 0
+
+
 def main():
+    if "--self-test" in sys.argv:
+        sys.exit(self_test())
     if not single_instance():
         ctypes.windll.user32.MessageBoxW(None, "Hotk33 is already running.", "Hotk33", 0x40)
         return

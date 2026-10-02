@@ -1,0 +1,85 @@
+# Builds the Windows app (and the Model 100 firmware) for every published
+# release and attaches them to it. Run it by hand (Actions > Build release >
+# Run workflow) to just build and download the files.
+name: Build release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      KEYBOARDIO_INDEX: https://raw.githubusercontent.com/keyboardio/boardsmanager/main/package_keyboardio_index.json
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Check the version matches the release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(cd app && python -c "from version import __version__; print(__version__)")
+          if [ "v$version" != "$TAG" ] && [ "$version" != "$TAG" ]; then
+            echo "::error::app/version.py says $version but the release is $TAG"
+            exit 1
+          fi
+
+      - name: Build the app
+        run: python packaging/build_release.py --only app
+
+      - name: Test the built app
+        shell: pwsh
+        run: |
+          $exe = "build/pyinstaller-dist/Hotk33/Hotk33.exe"
+          $p = Start-Process -FilePath $exe -ArgumentList "--self-test" -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            Get-Content "$env:APPDATA/Hotk33/self-test.log" -ErrorAction SilentlyContinue
+            throw "Hotk33.exe --self-test failed (exit code $($p.ExitCode))"
+          }
+          "Hotk33.exe --self-test passed"
+
+      # The firmware is a bonus: if its toolchain can't be set up, the app is
+      # still released.
+      - name: Set up arduino-cli
+        id: arduino
+        continue-on-error: true
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Build the Model 100 firmware
+        if: steps.arduino.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          arduino-cli core update-index --additional-urls "$KEYBOARDIO_INDEX"
+          arduino-cli core install keyboardio:gd32 --additional-urls "$KEYBOARDIO_INDEX"
+          python packaging/build_release.py --only firmware
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Hotk33-windows
+          path: dist/*
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/* --clobber

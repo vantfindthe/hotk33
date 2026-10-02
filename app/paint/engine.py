@@ -29,7 +29,10 @@ class PaintEngine(threading.Thread):
     """pattern_of(output) -> its Pattern or None. `outputs` (the enabled
     devices) and `preview` (shown on screen) can be changed any time; devices
     start streaming once they have something painted, and get their own
-    lighting back when their pattern is cleared or they're switched off."""
+    lighting back when their pattern is cleared or they're switched off.
+
+    What gets drawn comes from scene() / lit() / draw() / reaction_of();
+    Styles mode overrides them to draw its effects through the same loop."""
 
     def __init__(self, outputs, pattern_of, settings, audio_device=lambda: None):
         """audio_device() -> index of the audio device to follow, or None."""
@@ -58,6 +61,39 @@ class PaintEngine(threading.Thread):
         """Called on the hook thread: just queue it."""
         self._events.put(ev.vk)
 
+    # ---- what to draw (overridden by Styles mode)
+
+    def scene(self, devices):
+        """{output id: what to draw on it} for the devices that have something."""
+        out = {}
+        for d in devices:
+            pattern = self.pattern_of(d)
+            if pattern is not None and pattern.n == d.layout.n:
+                out[d.id] = pattern
+        return out
+
+    def lit(self, source):
+        """Whether `source` lights anything (otherwise the device isn't taken over)."""
+        return not source.empty
+
+    def wants_audio(self, scene):
+        return any(p.uses(AUDIO) for p in scene.values())
+
+    def reaction_of(self, out):
+        """Per-LED heat added by a press of the LED's key, or None."""
+        pattern = self.pattern_of(out)
+        return pattern.reaction if pattern is not None else None
+
+    def heat_fade(self):
+        return self.settings["paint_heat_fade"]
+
+    def draw(self, out, source, t, now, heat, presses, bands):
+        """(n, 3) float RGB 0..1 for `out`. presses: [(time, center LED or None)]."""
+        return render(source, out.layout, t, max(0.2, self.settings["paint_period"]), heat,
+                      ripple(out.layout, presses, now), bands)
+
+    # ---- the loop
+
     def _press(self, key, devices, secure, now):
         if secure is not None and secure.focused_is_password():
             # the lights mustn't show where a password was typed: a flash
@@ -66,16 +102,16 @@ class PaintEngine(threading.Thread):
             return
         self.presses.append((now, key))
         for out in devices:
-            pattern = self.pattern_of(out)
-            leds = out.keymap.get(key) if pattern is not None else None
+            reaction = self.reaction_of(out)
+            leds = out.keymap.get(key) if reaction is not None else None
             if not leds:
                 continue
-            heat = self.heat.setdefault(out.id, np.zeros(pattern.n))
-            if len(heat) != pattern.n:
-                heat = self.heat[out.id] = np.zeros(pattern.n)
-            leds = [i for i in leds if i < pattern.n]
-            heat[leds] = np.minimum(heat[leds] + pattern.reaction[leds] * HEAT_PER_PRESS,
-                                    MAX_HEAT)
+            n = len(reaction)
+            heat = self.heat.setdefault(out.id, np.zeros(n))
+            if len(heat) != n:
+                heat = self.heat[out.id] = np.zeros(n)
+            leds = [i for i in leds if i < n]
+            heat[leds] = np.minimum(heat[leds] + reaction[leds] * HEAT_PER_PRESS, MAX_HEAT)
 
     def _sync_workers(self, wanted):
         for out_id in [i for i in self.workers if i not in wanted]:
@@ -123,7 +159,6 @@ class PaintEngine(threading.Thread):
         while not self._quit.is_set():
             now = time.monotonic()
             dt, last = now - last, now
-            s = self.settings
             outputs, preview = self.outputs, self.preview
             devices = outputs + ([preview] if preview is not None and preview not in outputs
                                  else [])
@@ -135,30 +170,25 @@ class PaintEngine(threading.Thread):
                 if key:
                     self._press(key, devices, secure, now)
             self.presses = [p for p in self.presses if now - p[0] < PULSE_S * 6 + 1][-24:]
-            fade = max(0.1, s["paint_heat_fade"])
+            fade = max(0.1, self.heat_fade())
             for heat in self.heat.values():
                 heat *= math.exp(-dt / fade)
 
-            wanted, patterns = {}, {}
-            for out in devices:
-                pattern = self.pattern_of(out)
-                if pattern is not None and pattern.n == out.layout.n:
-                    patterns[out.id] = pattern
-                    if not pattern.empty and out in outputs:
-                        wanted[out.id] = out
-            self._sync_workers(wanted)
-            bands = self._audio(any(p.uses(AUDIO) for p in patterns.values()))
+            scene = self.scene(devices)
+            self._sync_workers({o.id: o for o in outputs
+                                if o.id in scene and self.lit(scene[o.id])})
+            bands = self._audio(self.wants_audio(scene))
 
-            t, period = now - start, max(0.2, s["paint_period"])
+            t = now - start
             frames = {}
             for out in devices:
-                pattern = patterns.get(out.id)
-                if pattern is None:
+                source = scene.get(out.id)
+                if source is None:
                     continue
                 presses = [(pt, out.keymap[k][0] if k in out.keymap else None)
                            for pt, k in self.presses]
-                colors = render(pattern, out.layout, t, period, self.heat.get(out.id),
-                                ripple(out.layout, presses, now), bands)
+                colors = np.clip(self.draw(out, source, t, now, self.heat.get(out.id), presses,
+                                           bands), 0, 1)
                 frames[out.id] = colors
                 if out.id in self.workers:
                     self.workers[out.id].submit(device_frame(colors, out))

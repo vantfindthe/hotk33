@@ -162,6 +162,14 @@ def main():
     app._set_pill("Live  ·  1 device", GOOD)
     app.start_btn.configure(text="Stop", fg_color=FIELD, hover_color=FIELD_HOVER, text_color=TEXT)
     grab(root, OUT / "paint.png")
+
+    # Styles: a catalog style, with the layout just painted under My layouts
+    app.mode_btn.set(app_mod.STYLES)
+    app.switch_page(app_mod.STYLES)
+    styles = app.pages[app_mod.STYLES]
+    styles.choose("Rainbow chevron")
+    styles.tick()
+    grab(root, OUT / "styles.png")
     app.mode_btn.set(app_mod.MUSIC)
     app.switch_page(app_mod.MUSIC)
 
