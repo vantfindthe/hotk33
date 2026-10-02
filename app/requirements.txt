@@ -1,0 +1,7 @@
+numpy
+pyserial
+PyAudioWPatch
+customtkinter
+pillow
+openrgb-python
+hidapi

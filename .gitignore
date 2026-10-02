@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local app state
+app/settings.json
+app/icon.ico
+
+# Build output
+build/
+dist/
+firmware/build/
+firmware/flash.log
+
+# Local toolchain (install arduino-cli yourself - see README)
+tools/
+
+# Personal keyboard backups (EEPROM dumps)
+backup/
